@@ -41,6 +41,12 @@ inclusion, grouping, and Assembly-handoff contracts are documented in
 [`FLOW_BOUNDARY_CONTRACTS.md`](FLOW_BOUNDARY_CONTRACTS.md). M4 output is
 `ResolvedContentFlow`, not BookModel or EPUB.
 
+The deterministic M4A implementation is documented in
+[`FLOW_RESOLVER.md`](FLOW_RESOLVER.md). It checkpoints independent local
+decisions before a separate global grouping/order phase, consumes only accepted
+M3 semantics, and emits conservative unresolved decisions when evidence is
+insufficient. It has no LLM or renderer dependency.
+
 Small protocols in `bookforge.contracts.interfaces` express dependency direction. They are ports, not working implementations and not a single oversized engine interface.
 
 ## Immutable source content
