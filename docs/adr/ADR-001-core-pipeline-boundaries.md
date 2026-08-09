@@ -11,7 +11,7 @@ BookForge separates:
 Extraction -> Semantic -> Flow/Boundary -> Book Assembly -> Rendering
 ```
 
-Extraction preserves evidence and source order. M3 identifies semantic meaning—what content is. M4 determines continuity, logical grouping, boundaries, and final reading placement—how content flows. Book Assembly materializes resolved M4 output as valid BookModel V2. M1B renders BookModel without re-running semantic or source-layout inference.
+Extraction preserves evidence and source order. M3 identifies semantic meaning—what content is. M4 determines continuity, logical grouping, boundaries, and final reading placement—how content flows. Book Assembly materializes resolved M4 output as the active BookModel contract (V3 after ADR-005). A compatible M1B renders BookModel without re-running semantic or source-layout inference.
 
 ## Rationale
 

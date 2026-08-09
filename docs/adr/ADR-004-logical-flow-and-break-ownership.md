@@ -8,7 +8,8 @@
 M3 identifies semantic meaning. M4 resolves continuity, logical structural
 boundaries, grouping, inclusion, figure placement, caption association, and
 logical break intent. Book Assembly materializes accepted resolved flow as
-BookModel V2. M1B renders that BookModel without rediscovering decisions.
+the active BookModel contract. ADR-005 selects BookModelV3 for future Assembly;
+the frozen current M1B still renders V2 until later adaptation.
 
 The layers remain:
 
@@ -16,8 +17,8 @@ The layers remain:
 M3 SemanticFragments
   -> M4 ResolvedContentFlow
   -> Book Assembly
-  -> BookModel V2
-  -> M1B EPUB
+  -> BookModelV3
+  -> compatible M1B EPUB
 ```
 
 Continuity, structural boundary, logical break, relationship/placement, and
@@ -49,4 +50,5 @@ complete logical model rather than becoming another inference stage.
 - Exclusion removes content only from final flow, never from evidence/audit.
 - Unresolved M4 decisions require review or block Assembly; runtime failure is
   represented separately in a future operational milestone.
-- M1B remains frozen and deterministic over BookModel V2.
+- Current M1B remains frozen and deterministic over BookModel V2; a later
+  approved adaptation must remain deterministic over V3.

@@ -2,7 +2,7 @@
 
 > Contracts implement the authority, traceability, and explicit-evolution rules defined normatively in [`PRINCIPLES.md`](PRINCIPLES.md). Contract consumers must preserve source-text authority, referential traceability, and versioned contract evolution; they must not introduce hidden workarounds.
 
-All contracts are Pydantic v2 models under `bookforge/contracts`, forbid unknown fields, and support JSON serialization. Most source/evidence contracts remain at schema version 1. `BookModel` and its `BookContentCatalog` are active schema version 2 contracts. IDs are opaque stable strings; producers must not encode business logic that consumers need to parse from an ID.
+All contracts are Pydantic v2 models under `bookforge/contracts`, forbid unknown fields, and support JSON serialization. Most source/evidence contracts remain at schema version 1. `BookModelV3` and `BookContentCatalogV3` are the active future Assembly contracts; historical `BookModel` V2 remains the frozen M1B input. IDs are opaque stable strings; producers must not encode business logic that consumers need to parse from an ID.
 
 | Contract group | Owner / producer | Primary consumers | Invariants |
 |---|---|---|---|
@@ -83,7 +83,7 @@ no source text copy, flow operation, final placement, or checkpoint state. See
 
 Contracts V1 is historical. V1 `BookModel` contained logical `FragmentId` references but no semantic catalog, so a renderer could not deterministically resolve those IDs to `SemanticFragment`, `SemanticFigure`, or `SemanticTable` values.
 
-Contracts V2 is active. V2 adds the required `BookContentCatalog` containing typed fragment, figure, and table maps. `BookModel` and `BookContentCatalog` both serialize with `schema_version: 2`. V2 validates that all logical references exist, catalog keys match object IDs, figure/table types are correct, captions resolve, and figure/table entries are not orphaned.
+Contracts V2 is the historical renderer contract. V2 added the required `BookContentCatalog` containing typed fragment, figure, and table maps. `BookModel` and `BookContentCatalog` both serialize with `schema_version: 2`. V2 validates that all logical references exist, catalog keys match object IDs, figure/table types are correct, captions resolve, and figure/table entries are not orphaned.
 
 M3.0 remains an additive Contracts V2 extension. It does not justify a V3 bump:
 no V2 field is renamed/removed, no existing meaning changes, and no V2 invariant
@@ -92,6 +92,16 @@ is weakened. Semantic taxonomy versioning is separate from schema versioning.
 V2 still contains no authoritative regenerated text. Each `SemanticFragment` carries only `SourceTextReference` values; consumers resolve them through `EvidenceRegistry` to frozen raw evidence. Logical order comes only from V2 front matter, chapters, sections, and back matter. Parser page geometry and DOCX image anchors are not logical placement instructions.
 
 No automatic V1-to-V2 migration engine exists yet. A future assembler/migration must supply the semantic catalog and pass V2 referential-integrity validation; it must never synthesize missing source text.
+
+Contracts V3 is active for future Book Assembly. V3 introduces one ordered
+`body` union of parts and ungrouped chapters, preserves logical break intent on
+the hierarchy, and replaces the all-text fragment assumption with typed text,
+figure, table, and unsupported semantic nodes. These changes are breaking:
+serialized V2 books cannot acquire PART ownership or clean non-text provenance
+without information not present in V2. V2 remains supported by the frozen M1B
+renderer. There is no V2-to-V3 automatic migration. See
+[`ASSEMBLY_CONTRACTS.md`](ASSEMBLY_CONTRACTS.md), [ADR-005](adr/ADR-005-book-assembly-boundary.md),
+and [ADR-006](adr/ADR-006-semantic-content-provenance.md).
 
 ## Table, figure, and artifact decisions
 

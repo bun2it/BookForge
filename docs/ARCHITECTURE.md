@@ -83,7 +83,12 @@ semantic inference.
 
 ## Book and artifact ownership
 
-Active Contracts V2 `BookModel` contains a typed `BookContentCatalog` of semantic fragments, figures, and tables and never records whether input was PDF or DOCX. Logical structure references that catalog; authoritative text still resolves through `SourceTextReference` and `EvidenceRegistry`. Contracts V1 `BookModel` is historical and has no automatic migration engine yet.
+Contracts V3 is the active future Assembly output. `BookModelV3` contains one
+ordered part/chapter hierarchy and a source-neutral typed semantic-node catalog.
+Authoritative text still resolves through `SourceTextReference` and
+`EvidenceRegistry`. V1 and V2 remain historical contracts; the frozen M1B
+renderer continues to accept V2 only until a separately approved adaptation.
+No automatic migration engine exists. See [`ASSEMBLY_CONTRACTS.md`](ASSEMBLY_CONTRACTS.md).
 
 EPUB is the primary immutable artifact. `ImmutableEpubArtifact` is a frozen value containing path reference, size, checksum, BookModel revision, metadata snapshot, and optional validation reference. A build creates an artifact; validation appends a separate record.
 

@@ -5,7 +5,7 @@
 
 ## Decision
 
-Raw Evidence is authoritative for source content. Semantic layers store `SourceTextReference` values, not regenerated authoritative text. `EvidenceRegistry` resolves those references to frozen evidence. BookModel V2 represents logical structure; EPUB represents the deterministic rendered artifact.
+Raw Evidence is authoritative for source content. Semantic layers store `SourceTextReference` values, not regenerated authoritative text. `EvidenceRegistry` resolves those references to frozen evidence. The active BookModel represents logical structure; EPUB represents the deterministic rendered artifact. ADR-006 adds source-neutral non-text provenance without changing text authority.
 
 ```text
 SemanticFragment -> SourceTextReference -> EvidenceRegistry -> Raw Evidence -> XHTML

@@ -217,13 +217,13 @@ BookForge MUST NOT hide damage or unsupported content merely to produce an outpu
 
 ## 15. BookModel is logical truth for rendering
 
-Once assembled and validated, active BookModel V2 is authoritative for logical reading structure. M1B MUST follow its front matter, chapter, section, fragment, figure, table, caption, navigation, and spine order. It MUST NOT inspect DOCX anchors, Word styles, PDF coordinates, source page numbers, or raw text patterns to infer a different structure.
+Once assembled and validated, the active BookModel contract (V3 after M4.5) is authoritative for logical reading structure. A compatible renderer MUST follow its front matter, part/chapter/section hierarchy, fragment, figure, table, caption, and reading order. It MUST NOT inspect DOCX anchors, Word styles, PDF coordinates, source page numbers, or raw text patterns to infer a different structure. The frozen current M1B remains a V2-only renderer until an explicitly approved adaptation.
 
 Authority is deliberately split:
 
 ```text
 Raw Evidence = authoritative source content
-BookModel V2 = authoritative logical reading structure
+active BookModel = authoritative logical reading structure
 EPUB = deterministic rendered artifact
 ```
 
@@ -293,7 +293,7 @@ Architecture boundaries are testable product behavior, not documentation aspirat
 | Group content into parts/chapters | M4 Flow/Boundary |
 | Determine logical chapter/part breaks | M4 Flow/Boundary |
 | Determine final figure placement and caption association | M4 Flow/Boundary |
-| Materialize resolved logical structure as BookModel V2 | Book Assembly from M4 output |
+| Materialize resolved logical structure as the active BookModel | Book Assembly from M4 output |
 | Render chapter XHTML | M1B rendering |
 | Generate EPUB navigation and spine from BookModel | M1B rendering |
 | Package deterministic EPUB | M1B rendering |
@@ -318,7 +318,7 @@ Architecture boundaries are testable product behavior, not documentation aspirat
 - **I11.** Unknown and uncertain states MUST remain representable.
 - **I12.** Unsupported content MUST NOT disappear silently.
 - **I13.** Deterministic operations SHOULD NOT be delegated to AI.
-- **I14.** BookModel V2 determines logical rendering order.
+- **I14.** The active compatible BookModel determines logical rendering order.
 - **I15.** Delivery MUST operate on immutable EPUB artifacts.
 
 ## Instructions for future Codex and AI development agents
