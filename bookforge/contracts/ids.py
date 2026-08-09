@@ -35,6 +35,11 @@ _SEMANTIC_RE = re.compile(r"^sem_f\d{6,}$")
 _BOUNDARY_RE = re.compile(r"^bnd\d{6,}$")
 _CLASSIFICATION_RE = re.compile(r"^cls_[0-9a-f]{20}$")
 _REVIEW_RE = re.compile(r"^rev_[0-9a-f]{20}$")
+_FLOW_DECISION_RE = re.compile(r"^fld_[0-9a-f]{20}$")
+_FLOW_REVIEW_RE = re.compile(r"^fdr_[0-9a-f]{20}$")
+_FLOW_GROUP_RE = re.compile(
+    r"^flow_(?:front_matter|back_matter|part|chapter|section|subsection)_\d{4,}$"
+)
 
 
 def _positive_order(value: int, label: str) -> int:
@@ -135,6 +140,40 @@ def classification_review_id(
     return f"rev_{digest[:20]}"
 
 
+def flow_decision_id(
+    *,
+    decision_kind: str,
+    fragment_ids: Sequence[str],
+    input_fingerprint: str,
+    configuration_fingerprint: str,
+    policy_version: str,
+) -> str:
+    components = (
+        decision_kind,
+        tuple(fragment_ids),
+        input_fingerprint,
+        configuration_fingerprint,
+        policy_version,
+    )
+    digest = hashlib.sha256(repr(components).encode("utf-8")).hexdigest()
+    return f"fld_{digest[:20]}"
+
+
+def flow_decision_review_id(
+    *, original_decision_id: str, accepted_decision_id: str, review_fingerprint: str
+) -> str:
+    components = (original_decision_id, accepted_decision_id, review_fingerprint)
+    digest = hashlib.sha256(repr(components).encode("utf-8")).hexdigest()
+    return f"fdr_{digest[:20]}"
+
+
+def flow_group_id(group_kind: str, order: int) -> str:
+    allowed = {"front_matter", "back_matter", "part", "chapter", "section", "subsection"}
+    if group_kind not in allowed:
+        raise StableIdError(f"invalid logical group kind: {group_kind!r}")
+    return f"flow_{group_kind}_{_positive_order(order, 'order'):04d}"
+
+
 def validate_stable_id(value: str) -> str:
     matched = any(
         pattern.fullmatch(value)
@@ -148,9 +187,12 @@ def validate_stable_id(value: str) -> str:
             _BOUNDARY_RE,
             _CLASSIFICATION_RE,
             _REVIEW_RE,
+            _FLOW_DECISION_RE,
+            _FLOW_REVIEW_RE,
+            _FLOW_GROUP_RE,
         )
     )
-    hash_ids = ("doc_", "cls_", "rev_")
+    hash_ids = ("doc_", "cls_", "rev_", "fld_", "fdr_")
     if matched and (value.startswith(hash_ids) or all(int(part) >= 1 for part in re.findall(r"\d+", value))):
         return value
     raise StableIdError(f"invalid BookForge stable ID: {value!r}")

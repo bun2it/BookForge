@@ -15,6 +15,7 @@ All contracts are Pydantic v2 models under `bookforge/contracts`, forbid unknown
 | BookState | State updater | Incremental analyzer | Compact and serializable; references rather than full book text |
 | BoundaryOperation | Boundary resolver | Flow normalizer, QA | Active operations reference source or fragment IDs; unresolved is explicit |
 | ContentFlow | Flow normalizer | Book assembler | Logical reading order only; no physical page/layout dependency |
+| ResolvedContentFlow | M4 Flow/Boundary | Book Assembly | Final logical order plus typed continuity, grouping, break, placement, association, and inclusion decisions; no book text or EPUB state |
 | BookModel | Book assembler | EPUB builder, inspector | Source-format independent; chapter/section content references semantic fragments |
 | SemanticTable | Table analyzer | Flow, EPUB strategy | Missing cells need not be invented; strategy is declarative only |
 | SemanticFigure | Visual analyzer | Flow, EPUB strategy | Source image remains traceable; keep/drop/review is explicit |
@@ -44,6 +45,9 @@ Stable IDs derive from immutable source order and document content, never databa
 | Boundary operation | `bnd<operation-order:06>` | `bnd000017` |
 | Semantic classification | `cls_<first 20 hex of decision-input SHA-256>` | `cls_0123456789abcdefabcd` |
 | Classification review | `rev_<first 20 hex of review-input SHA-256>` | `rev_0123456789abcdefabcd` |
+| Flow decision | `fld_<first 20 hex of decision-input SHA-256>` | `fld_0123456789abcdefabcd` |
+| Flow decision review | `fdr_<first 20 hex of review-input SHA-256>` | `fdr_0123456789abcdefabcd` |
+| Logical flow group | `flow_<kind>_<order:04>` | `flow_chapter_0003` |
 
 PDF object order is deterministic extractor order within a page. DOCX body order is deterministic XML body traversal order; nested order is within its stable parent. A collision must fail rather than gain a random suffix. Re-extracting identical content with identical traversal produces identical IDs. `ids.py` owns construction and validation; zero order and unknown formats are rejected.
 
@@ -92,6 +96,22 @@ No automatic V1-to-V2 migration engine exists yet. A future assembler/migration 
 ## Table, figure, and artifact decisions
 
 `SemanticTable` records source-backed rows/cells, spans when known, header evidence, confidence, and a preferred future rendering strategy. `SemanticFigure` records a source image, optional caption/anchor, dimensions, classification, confidence, and keep/drop/review. `ArtifactClassification` records evidence and an explicit exclusion flag without removing it.
+
+## M4 flow and boundary decisions
+
+M4.0 additively defines `LogicalBoundaryDecision`, `LogicalGroup`,
+`FigurePlacement`, `CaptionAssociation`, `InclusionDecision`, auditable review,
+and `ResolvedContentFlow`. Continuity, structural boundary, logical break,
+placement/relationship, and inclusion are independent typed dimensions.
+
+Text/list joins reference authoritative source text; table continuation
+references source table evidence without inventing cells. Flow decisions carry
+resolver identity, confidence/review state, reason codes, input/config
+fingerprints, taxonomy/policy versions, and deterministic IDs. They contain no
+authoritative regenerated text, source-specific mandatory layout, BookModel,
+or EPUB packaging fields. Historical `BoundaryOperation` and `ContentFlow`
+remain unchanged. See [`FLOW_BOUNDARY_CONTRACTS.md`](FLOW_BOUNDARY_CONTRACTS.md)
+and [ADR-004](adr/ADR-004-logical-flow-and-break-ownership.md).
 
 ## Processing and events
 

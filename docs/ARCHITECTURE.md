@@ -36,6 +36,11 @@ is documented in [`SEMANTIC_PIPELINE.md`](SEMANTIC_PIPELINE.md). It builds
 source-ordered work units and temporary analysis views, validates classifier
 results, and checkpoints audit artifacts without changing Raw Evidence.
 
+The typed M4 continuity, structural-boundary, logical-break, placement,
+inclusion, grouping, and Assembly-handoff contracts are documented in
+[`FLOW_BOUNDARY_CONTRACTS.md`](FLOW_BOUNDARY_CONTRACTS.md). M4 output is
+`ResolvedContentFlow`, not BookModel or EPUB.
+
 Small protocols in `bookforge.contracts.interfaces` express dependency direction. They are ports, not working implementations and not a single oversized engine interface.
 
 ## Immutable source content
@@ -63,6 +68,12 @@ placement. Those remain M4 and Book Assembly responsibilities.
 `BoundaryOperation` can describe paragraph/hyphen/list/table continuation, caption association, structural boundaries, no-op, and unresolved outcomes. It always refers to evidence or semantic IDs for active operations. The resolver is deferred.
 
 After resolution, `ContentFlow` is the continuous ebook reading order. Physical X/Y positions and source pagination are allowed only in earlier evidence/provenance, not as flow semantics.
+
+M4.0's additive `ResolvedContentFlow` is the complete typed handoff for future
+Book Assembly. It keeps continuity, structural transition, logical break,
+placement/association, and inclusion decisions orthogonal. Assembly follows its
+logical order and groups without inspecting source anchors/pages or repeating
+semantic inference.
 
 ## Book and artifact ownership
 
