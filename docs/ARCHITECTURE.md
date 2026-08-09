@@ -31,6 +31,11 @@ The source-backed M3 classification boundary is documented in
 evidence is and remains independent of flow, boundary, assembly, and rendering
 decisions.
 
+The deterministic, LLM-independent transport and resume layer for that boundary
+is documented in [`SEMANTIC_PIPELINE.md`](SEMANTIC_PIPELINE.md). It builds
+source-ordered work units and temporary analysis views, validates classifier
+results, and checkpoints audit artifacts without changing Raw Evidence.
+
 Small protocols in `bookforge.contracts.interfaces` express dependency direction. They are ports, not working implementations and not a single oversized engine interface.
 
 ## Immutable source content
