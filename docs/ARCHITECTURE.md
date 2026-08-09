@@ -47,6 +47,13 @@ decisions before a separate global grouping/order phase, consumes only accepted
 M3 semantics, and emits conservative unresolved decisions when evidence is
 insufficient. It has no LLM or renderer dependency.
 
+M4.6 hardens the future Assembly boundary with explicit metadata, a persisted
+FragmentId-to-classification association, deterministic reviewed semantic-node
+materialization, and renderer-neutral continuity edges. M4 owns joins;
+Assembly preserves them; a later V3 renderer executes them. See
+[`ASSEMBLY_CONTRACTS.md`](ASSEMBLY_CONTRACTS.md) and
+[ADR-007](adr/ADR-007-continuity-through-assembly.md).
+
 Small protocols in `bookforge.contracts.interfaces` express dependency direction. They are ports, not working implementations and not a single oversized engine interface.
 
 ## Immutable source content

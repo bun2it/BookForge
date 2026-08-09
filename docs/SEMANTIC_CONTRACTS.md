@@ -82,6 +82,12 @@ accepted type, reviewer identity, rationale, fingerprint, and provenance. An
 accepted review must retain the type; an overridden review must change it. The
 original machine result is never edited or discarded.
 
+For M4.6 Assembly admission, a review may also snapshot the base classification
+input fingerprint and taxonomy version. Hardened Assembly input requires these
+values for an active review and rejects missing or mismatched snapshots as
+stale. Historical review serialization remains readable because these fields
+are optional outside the Assembly admission boundary.
+
 ## Source traceability
 
 Every target carries source IDs. Every classification representing textual

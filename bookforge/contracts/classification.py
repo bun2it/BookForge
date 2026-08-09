@@ -134,6 +134,8 @@ class ClassificationReview(FrozenContractModel):
     accepted_semantic_type: SemanticType
     reviewer: ClassifierIdentity
     review_fingerprint: Fingerprint
+    base_input_fingerprint: Fingerprint | None = None
+    taxonomy_version: str | None = None
     rationale_codes: tuple[RationaleCode, ...] = ()
     provenance: ClassificationProvenance
 

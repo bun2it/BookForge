@@ -103,6 +103,20 @@ renderer. There is no V2-to-V3 automatic migration. See
 [`ASSEMBLY_CONTRACTS.md`](ASSEMBLY_CONTRACTS.md), [ADR-005](adr/ADR-005-book-assembly-boundary.md),
 and [ADR-006](adr/ADR-006-semantic-content-provenance.md).
 
+M4.6 is hardening within Contracts V3. Assembly input now requires
+`BookMetadataV3` and an explicit `AcceptedClassificationCatalog` keyed by
+`FragmentId`. `BookModelV3` adds a default-empty typed continuity catalog so
+accepted M4 joins survive Assembly without merging nodes or copying text.
+Existing V3 hierarchy/catalog meaning remains coherent, so V4 is not required.
+Classification reviews may snapshot base input fingerprint and taxonomy for
+stale-review validation. See [ADR-007](adr/ADR-007-continuity-through-assembly.md).
+
+M4.7 additively completes Assembly readiness/error vocabulary within V3. Seven
+new enum values distinguish hierarchy, ownership, inclusion-disposition,
+figure-placement, caption-association, and referential-integrity failures.
+`AssemblyNotReadyError.report` exposes the complete immutable typed report.
+Existing V3 codes, findings, reports, and serialization retain their meaning.
+
 ## Table, figure, and artifact decisions
 
 `SemanticTable` records source-backed rows/cells, spans when known, header evidence, confidence, and a preferred future rendering strategy. `SemanticFigure` records a source image, optional caption/anchor, dimensions, classification, confidence, and keep/drop/review. `ArtifactClassification` records evidence and an explicit exclusion flag without removing it.

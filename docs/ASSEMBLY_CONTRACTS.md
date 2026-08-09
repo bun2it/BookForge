@@ -103,13 +103,48 @@ or conflicting reviews, invalid/stale replacements, and required unreviewed
 classifications. Logical hierarchy is validated when `BookModelV3` is
 materialized. Typed future runtime errors mirror these categories.
 
+M4.7 completes the typed readiness vocabulary with distinct codes for invalid
+hierarchy, duplicate ownership, missing ownership, incomplete inclusion
+disposition, unresolved figure placement, unresolved caption association, and
+referential-integrity failure. The enum code owns failure semantics;
+`reference_id` only identifies the affected object. In particular,
+`INVALID_CONTINUITY`, `MISSING_SEMANTIC_CONTENT`,
+`MISSING_ASSET_PROVENANCE`, and `UNSUPPORTED_CONTENT` must not be used as
+generic buckets for unrelated preflight failures.
+
+`AssemblyNotReadyError(report)` preserves the exact immutable
+`AssemblyReadinessReport` through its typed `report` property. Its deterministic
+message is informational; callers inspect `error.report`, never parse the
+message or rely on `exception.args` for contract state.
+
 ## Input, output, identity, and integrity
 
-`AssemblyInput` contains the typed semantic catalog, `ResolvedContentFlow`,
-classification/review audit, replacement decisions, and assembly policy. It
-does not need `EvidenceRegistry` to materialize hierarchy; text resolution is
-a renderer/validation concern. It does not need `AssetResolver`; catalog asset
-provenance is validated without reading bytes.
+M4.6 hardens `AssemblyInput` with required `BookMetadataV3`, the typed semantic
+catalog, an explicit `AcceptedClassificationCatalog` mapping every
+`FragmentId` to its accepted `ClassificationResult`, classification reviews,
+`ResolvedContentFlow`, replacement decisions, and assembly policy. Metadata is
+input truth: Assembly never infers title, language, identifier, publisher,
+description, or cover. The title fragment must resolve to a source-backed
+BOOK_TITLE/TITLE text node after review resolution.
+
+The M3 acceptance/materialization boundary owns the fragment-to-classification
+mapping. M4A's existing runtime mapping already follows this ownership; M4.6
+makes it persistable and explicit for Assembly. Assembly never scans source
+references to rediscover an association.
+
+`EffectiveClassification` records fragment, base classification, optional
+review, taxonomy, effective semantic type, and deterministic fingerprint. A
+review must match base input fingerprint, taxonomy, source identity, and
+original type. One active review is allowed. Text-to-text changes such as
+PARAGRAPH to QUOTE update only semantic type and preserve references. Typed
+node families are TEXT, FIGURE, TABLE, and UNSUPPORTED. Cross-family conversion
+without the already-required target provenance is invalid; no node shape is
+synthesized. FIGURE to DECORATIVE is therefore invalid for a FigureSemanticNode;
+explicit M4 exclusion is the supported non-rendering decision.
+
+Assembly does not need `EvidenceRegistry` to materialize hierarchy; text
+resolution is a renderer/validation concern. It does not need `AssetResolver`;
+catalog asset provenance is validated without reading bytes.
 
 Future `BookAssemblerV3.assemble(AssemblyInput) -> BookModelV3` is the narrow
 port. No god-object engine is introduced. Persistent group IDs reuse M4's
@@ -123,6 +158,29 @@ models are frozen. Referential validation covers hierarchy-to-catalog,
 figure-to-image/asset, figure-to-caption, table-to-source evidence, and unique
 content ownership. Catalog evidence may remain unowned only when it is
 explicitly excluded or unsupported upstream; it is not silently deleted.
+
+## Continuity through Assembly
+
+M4.6 adds top-level `BookModelV3.continuity`, a tuple of immutable
+`LogicalContinuityV3` edges. The hierarchy remains the only ordering truth;
+continuity only annotates an ordered left/right pair with the accepted M4
+operation and effective source decision ID. Nodes remain separate and no edge
+contains joined, normalized, or merged text.
+
+Persisted operations are KEEP_SEPARATE, JOIN_DIRECT, JOIN_WITH_SPACE,
+JOIN_WITH_NEWLINE, JOIN_REMOVE_TRAILING_HYPHEN, CONTINUE_LIST, and
+CONTINUE_TABLE. Text joins require two textual nodes. List continuation
+requires LIST/LIST_ITEM text nodes. Table continuation requires two table
+nodes and never merges rows. Targets must exist, be included, and be adjacent
+in final hierarchy order. Thus an explicitly excluded footer between two source
+paragraphs does not prevent their final adjacency. Non-separating continuity
+cannot cross front/body/back, PART, CHAPTER, SECTION, or SUBSECTION containers.
+Duplicate operations for one edge are rejected.
+
+`materialize_effective_continuity` resolves zero-or-one valid flow review and
+retains the accepted replacement decision ID. Later M5B resolves both nodes'
+source references and executes the operation. Changing continuity changes the
+canonical Assembly revision input while preserving node/source identity.
 
 ## Front and back matter audit
 

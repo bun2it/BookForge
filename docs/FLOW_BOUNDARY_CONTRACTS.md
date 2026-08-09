@@ -202,6 +202,11 @@ part/chapter/section hierarchy, BookContentCatalog, and ordering. It must not:
 If required decisions remain unresolved, orchestration must obtain review or
 stop before Assembly. Assembly materializes decisions; it is not M4.5.
 
+M4.6 clarifies that accepted continuity is not consumed-and-discarded at this
+boundary. Assembly maps each effective resolved boundary operation to a
+`LogicalContinuityV3` annotation. Node identity and authoritative source
+references remain unchanged; see ADR-007.
+
 ## Source and renderer neutrality
 
 Flow contracts require no DOCX or PDF field. Source anchor/page evidence may be

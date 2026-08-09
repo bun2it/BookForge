@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from bookforge.contracts.assembly import (
+    AcceptedClassificationCatalog,
     AssemblyAdmissionMode,
     AssemblyInput,
     AssemblyPolicy,
@@ -35,7 +36,13 @@ from bookforge.contracts.assembly import (
 )
 from bookforge.contracts.book import BookModel
 from bookforge.contracts.interfaces import EpubBuilder
-from bookforge.contracts.classification import ReviewStatus
+from bookforge.contracts.classification import (
+    ClassificationProvenance,
+    ClassificationResult,
+    ClassifierIdentity,
+    ClassifierKind,
+    ReviewStatus,
+)
 from bookforge.contracts.common import FragmentId, SourceId
 from bookforge.contracts.flow import (
     BoundaryEdge,
@@ -53,7 +60,7 @@ from bookforge.contracts.flow import (
     ResolverKind,
     StructuralBoundaryType,
 )
-from bookforge.contracts.ids import flow_decision_id, flow_decision_review_id, flow_group_id
+from bookforge.contracts.ids import classification_result_id, flow_decision_id, flow_decision_review_id, flow_group_id
 from bookforge.contracts.semantic import SemanticType
 from bookforge.contracts.source import SourceTextReference
 
@@ -76,6 +83,47 @@ def text_node(value: int, semantic_type: SemanticType = SemanticType.PARAGRAPH) 
         semantic_type=semantic_type,
         source_references=(SourceTextReference(source_id=source_id),),
         source_evidence=(EvidenceReference(source_id=source_id, kind=EvidenceKind.TEXT),),
+    )
+
+
+def accepted_classifications(catalog: BookContentCatalogV3) -> AcceptedClassificationCatalog:
+    values: dict[FragmentId, ClassificationResult] = {}
+    for fragment_id, node in catalog.nodes.items():
+        if isinstance(node, TextSemanticNode):
+            source_ids = tuple(item.source_id for item in node.source_evidence)
+            references = node.source_references
+            semantic_type = node.semantic_type
+        else:
+            source_ids = tuple(item.source_id for item in node.evidence)
+            references = ()
+            semantic_type = getattr(node, "semantic_type", SemanticType.UNKNOWN)
+        classification_id = classification_result_id(
+            target_source_ids=[str(item) for item in source_ids], taxonomy_version="bookforge-semantic-v1",
+            classifier_name="test", classifier_version="1", configuration_fingerprint=HASH,
+            input_fingerprint=HASH, context_fingerprint=HASH,
+        )
+        values[fragment_id] = ClassificationResult(
+            id=classification_id, target_source_ids=source_ids, source_references=references,
+            semantic_type=semantic_type, confidence=1, review_status=ReviewStatus.NOT_REQUIRED,
+            classifier=ClassifierIdentity(name="test", kind=ClassifierKind.DETERMINISTIC, version="1"),
+            configuration_fingerprint=HASH, input_fingerprint=HASH, context_fingerprint=HASH,
+            provenance=ClassificationProvenance(document_id="doc_aaaaaaaaaaaaaaaa", source_ids=source_ids, created_at=EPOCH),
+        )
+    return AcceptedClassificationCatalog(document_id="doc_aaaaaaaaaaaaaaaa", by_fragment_id=values)
+
+
+def assembly_input(
+    catalog: BookContentCatalogV3,
+    flow: ResolvedContentFlow,
+    *,
+    replacement_decisions: tuple[LogicalBoundaryDecision, ...] = (),
+) -> AssemblyInput:
+    return AssemblyInput(
+        metadata=BookMetadataV3(title_fragment_id=fid(1), language="en", identifier="urn:test"),
+        semantic_catalog=catalog,
+        accepted_classifications=accepted_classifications(catalog),
+        resolved_flow=flow,
+        replacement_decisions=replacement_decisions,
     )
 
 
@@ -255,7 +303,8 @@ def test_unsupported_drawing_cannot_enter_reading_order() -> None:
 
 def test_strict_unresolved_flow_is_a_blocker() -> None:
     boundary = unresolved_boundary()
-    report = assess_assembly_readiness(AssemblyInput(semantic_catalog=BookContentCatalogV3(nodes={fid(1): text_node(1), fid(2): text_node(2)}), resolved_flow=make_flow(boundary), classifications=()))
+    catalog = BookContentCatalogV3(nodes={fid(1): text_node(1, SemanticType.BOOK_TITLE), fid(2): text_node(2)})
+    report = assess_assembly_readiness(assembly_input(catalog, make_flow(boundary)))
     assert not report.ready
     assert AssemblyReadinessCode.UNRESOLVED_FLOW in {finding.code for finding in report.findings}
 
@@ -273,10 +322,8 @@ def test_reviewed_replacement_is_accepted_without_mutating_original() -> None:
         original_decision_id=original.audit.decision_id, status=ReviewStatus.REVIEWED_OVERRIDDEN,
         accepted_decision_id=replacement_id, reviewer=resolver(), review_fingerprint=HASH, created_at=EPOCH,
     )
-    report = assess_assembly_readiness(AssemblyInput(
-        semantic_catalog=BookContentCatalogV3(nodes={fid(1): text_node(1), fid(2): text_node(2)}),
-        resolved_flow=make_flow(original, reviews=(review,)), classifications=(), replacement_decisions=(replacement,),
-    ))
+    catalog = BookContentCatalogV3(nodes={fid(1): text_node(1, SemanticType.BOOK_TITLE), fid(2): text_node(2)})
+    report = assess_assembly_readiness(assembly_input(catalog, make_flow(original, reviews=(review,)), replacement_decisions=(replacement,)))
     assert report.ready
     assert original.continuity is ContinuityType.UNRESOLVED
 
@@ -290,7 +337,8 @@ def test_conflicting_active_reviews_are_rejected() -> None:
             accepted_decision_id=original.audit.decision_id, reviewer=resolver(), review_fingerprint=char * 64, created_at=EPOCH,
         ) for char in ("b", "c")
     )
-    report = assess_assembly_readiness(AssemblyInput(semantic_catalog=BookContentCatalogV3(nodes={fid(1): text_node(1), fid(2): text_node(2)}), resolved_flow=make_flow(original, reviews=reviews), classifications=()))
+    catalog = BookContentCatalogV3(nodes={fid(1): text_node(1, SemanticType.BOOK_TITLE), fid(2): text_node(2)})
+    report = assess_assembly_readiness(assembly_input(catalog, make_flow(original, reviews=reviews)))
     assert AssemblyReadinessCode.CONFLICTING_REVIEW in {finding.code for finding in report.findings}
 
 
@@ -301,13 +349,14 @@ def test_explicit_exclusion_retains_catalog_evidence() -> None:
         revision="flow-exclusion", source_fragment_ids=(fid(1), fid(2)), ordered_fragment_ids=(fid(1),), inclusion_decisions=(exclusion,),
         provenance=ResolvedFlowProvenance(document_id="doc_aaaaaaaaaaaaaaaa", resolver=resolver(), configuration_fingerprint=HASH, input_fingerprint=HASH, semantic_taxonomy_version="v1", flow_policy_version="v1", created_at=EPOCH),
     )
-    catalog = BookContentCatalogV3(nodes={fid(1): text_node(1), fid(2): text_node(2, SemanticType.RUNNING_FOOTER)})
-    report = assess_assembly_readiness(AssemblyInput(semantic_catalog=catalog, resolved_flow=flow, classifications=()))
+    catalog = BookContentCatalogV3(nodes={fid(1): text_node(1, SemanticType.BOOK_TITLE), fid(2): text_node(2, SemanticType.RUNNING_FOOTER)})
+    report = assess_assembly_readiness(assembly_input(catalog, flow))
     assert report.ready and fid(2) in catalog.nodes and fid(2) not in flow.ordered_fragment_ids
 
 
 def test_readiness_rejects_missing_semantic_node() -> None:
-    report = assess_assembly_readiness(AssemblyInput(semantic_catalog=BookContentCatalogV3(nodes={fid(1): text_node(1)}), resolved_flow=make_flow(unresolved_boundary()), classifications=()))
+    catalog = BookContentCatalogV3(nodes={fid(1): text_node(1, SemanticType.BOOK_TITLE)})
+    report = assess_assembly_readiness(assembly_input(catalog, make_flow(unresolved_boundary())))
     assert AssemblyReadinessCode.MISSING_SEMANTIC_CONTENT in {finding.code for finding in report.findings}
 
 
@@ -357,10 +406,8 @@ def test_table_requires_matching_table_provenance() -> None:
 
 def test_unsupported_catalog_content_blocks_readiness_even_when_not_ordered() -> None:
     drawing = UnsupportedSemanticNode(id=fid(3), content_kind=UnsupportedContentKind.DRAWING, evidence=(EvidenceReference(source_id=SourceId("docx_drw000003"), kind=EvidenceKind.DRAWING),), reason_code="unsupported")
-    report = assess_assembly_readiness(AssemblyInput(
-        semantic_catalog=BookContentCatalogV3(nodes={fid(1): text_node(1), fid(2): text_node(2), fid(3): drawing}),
-        resolved_flow=make_flow(unresolved_boundary()), classifications=(),
-    ))
+    catalog = BookContentCatalogV3(nodes={fid(1): text_node(1, SemanticType.BOOK_TITLE), fid(2): text_node(2), fid(3): drawing})
+    report = assess_assembly_readiness(assembly_input(catalog, make_flow(unresolved_boundary())))
     assert AssemblyReadinessCode.UNSUPPORTED_CONTENT in {finding.code for finding in report.findings}
 
 
@@ -372,7 +419,8 @@ def test_unsupported_drawing_with_explicit_exclusion_is_admissible() -> None:
         revision="flow-drawing-exclusion", source_fragment_ids=(fid(1), fid(2)), ordered_fragment_ids=(fid(1),), inclusion_decisions=(exclusion,),
         provenance=ResolvedFlowProvenance(document_id="doc_aaaaaaaaaaaaaaaa", resolver=resolver(), configuration_fingerprint=HASH, input_fingerprint=HASH, semantic_taxonomy_version="v1", flow_policy_version="v1", created_at=EPOCH),
     )
-    report = assess_assembly_readiness(AssemblyInput(semantic_catalog=BookContentCatalogV3(nodes={fid(1): text_node(1), fid(2): drawing}), resolved_flow=flow, classifications=()))
+    catalog = BookContentCatalogV3(nodes={fid(1): text_node(1, SemanticType.BOOK_TITLE), fid(2): drawing})
+    report = assess_assembly_readiness(assembly_input(catalog, flow))
     assert report.ready
 
 
