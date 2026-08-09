@@ -1,5 +1,9 @@
 # BookForge V1 Architecture
 
+Contracts V3 deterministic assembly is documented in
+[`BOOK_ASSEMBLY.md`](BOOK_ASSEMBLY.md). It consumes accepted semantic and flow
+truth and emits `BookModelV3`; rendering remains a separate downstream stage.
+
 > [`PRINCIPLES.md`](PRINCIPLES.md) contains BookForge's normative engineering invariants. This document is descriptive architecture documentation; implementations must comply with the normative principles.
 
 ## Scope
