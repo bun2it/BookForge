@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bookforge"
+version = "0.1.0"
+description = "Module-first document reconstruction engine contracts"
+requires-python = ">=3.12"
+dependencies = [
+    "lxml>=5,<7",
+    "pydantic>=2.10,<3",
+    "python-docx>=1.1,<2",
+]
+
+[project.optional-dependencies]
+dev = ["lxml-stubs>=0.5", "mypy>=1.13", "pytest>=8.3"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+strict = true
+packages = ["bookforge"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["bookforge"]
