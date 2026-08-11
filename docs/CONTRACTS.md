@@ -117,6 +117,13 @@ figure-placement, caption-association, and referential-integrity failures.
 `AssemblyNotReadyError.report` exposes the complete immutable typed report.
 Existing V3 codes, findings, reports, and serialization retain their meaning.
 
+M5B.1 additively introduces `LogicalListV3` on `ResolvedContentFlow` and
+`BookModelV3`: deterministic identity, ordered/unordered kind, ordered
+LIST_ITEM membership, optional source segments, explicit nesting, and optional
+ordered start value without copied text. Contracts V3 remains active. See
+[`LIST_CONTRACTS.md`](LIST_CONTRACTS.md) and
+[ADR-009](adr/ADR-009-logical-list-ownership.md).
+
 ## Table, figure, and artifact decisions
 
 `SemanticTable` records source-backed rows/cells, spans when known, header evidence, confidence, and a preferred future rendering strategy. `SemanticFigure` records a source image, optional caption/anchor, dimensions, classification, confidence, and keep/drop/review. `ArtifactClassification` records evidence and an explicit exclusion flag without removing it.

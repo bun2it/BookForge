@@ -58,6 +58,7 @@ from bookforge.contracts.flow import (
     LogicalBreakIntent,
     LogicalGroup,
     LogicalGroupType,
+    LogicalListV3,
     StructuralBoundaryType,
 )
 from bookforge.contracts.semantic import SemanticType
@@ -70,6 +71,7 @@ class _AssemblyPlan:
     body: tuple[PartV3 | ChapterV3, ...]
     back_matter: MatterV3
     continuity: tuple[LogicalContinuityV3, ...]
+    logical_lists: tuple[LogicalListV3, ...]
     provenance: AssemblyProvenance
 
 
@@ -126,6 +128,7 @@ class BookAssembler:
             back_matter=plan.back_matter,
             content=plan.catalog,
             continuity=plan.continuity,
+            logical_lists=plan.logical_lists,
             provenance=plan.provenance,
         )
         try:
@@ -137,6 +140,7 @@ class BookAssembler:
                 back_matter=plan.back_matter,
                 content=plan.catalog,
                 continuity=plan.continuity,
+                logical_lists=plan.logical_lists,
                 provenance=plan.provenance,
             )
         except ValidationError as error:
@@ -170,6 +174,10 @@ class BookAssembler:
             value, effective_decisions, catalog
         )
         _append_unique(findings, disposition_findings)
+        _append_unique(
+            findings,
+            self._validate_logical_lists(value.resolved_flow.logical_lists, catalog, included, excluded),
+        )
         _append_unique(
             findings,
             self._validate_required_figure_caption_decisions(
@@ -235,6 +243,7 @@ class BookAssembler:
             body=body,
             back_matter=back_matter,
             continuity=continuity,
+            logical_lists=value.resolved_flow.logical_lists,
             provenance=provenance,
         )
         try:
@@ -245,6 +254,7 @@ class BookAssembler:
                 back_matter=back_matter,
                 content=catalog,
                 continuity=continuity,
+                logical_lists=value.resolved_flow.logical_lists,
                 provenance=provenance,
             )
             BookModelV3(
@@ -255,6 +265,7 @@ class BookAssembler:
                 back_matter=back_matter,
                 content=catalog,
                 continuity=continuity,
+                logical_lists=value.resolved_flow.logical_lists,
                 provenance=provenance,
             )
         except ValidationError as error:
@@ -263,6 +274,37 @@ class BookAssembler:
                 _finding(AssemblyReadinessCode.REFERENTIAL_INTEGRITY_FAILURE, str(error)),
             ]), None
         return AssemblyReadinessReport(ready=True), plan
+
+    @staticmethod
+    def _validate_logical_lists(
+        logical_lists: tuple[LogicalListV3, ...],
+        catalog: BookContentCatalogV3,
+        included: set[FragmentId],
+        excluded: set[FragmentId],
+    ) -> tuple[AssemblyReadinessFinding, ...]:
+        findings: list[AssemblyReadinessFinding] = []
+        for logical_list in logical_lists:
+            for member_id in logical_list.member_fragment_ids:
+                node = catalog.nodes.get(member_id)
+                if member_id in excluded or member_id not in included:
+                    findings.append(
+                        _finding(AssemblyReadinessCode.REFERENTIAL_INTEGRITY_FAILURE, str(member_id))
+                    )
+                elif not isinstance(node, TextSemanticNode) or node.semantic_type is not SemanticType.LIST_ITEM:
+                    findings.append(
+                        _finding(AssemblyReadinessCode.REFERENTIAL_INTEGRITY_FAILURE, str(member_id))
+                    )
+            for segment_id in logical_list.source_segment_fragment_ids:
+                node = catalog.nodes.get(segment_id)
+                if segment_id in excluded or segment_id not in included:
+                    findings.append(
+                        _finding(AssemblyReadinessCode.REFERENTIAL_INTEGRITY_FAILURE, str(segment_id))
+                    )
+                elif not isinstance(node, TextSemanticNode) or node.semantic_type is not SemanticType.LIST:
+                    findings.append(
+                        _finding(AssemblyReadinessCode.REFERENTIAL_INTEGRITY_FAILURE, str(segment_id))
+                    )
+        return tuple(findings)
 
     @staticmethod
     def _blocked(findings: list[AssemblyReadinessFinding]) -> AssemblyReadinessReport:

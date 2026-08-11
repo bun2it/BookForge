@@ -30,6 +30,20 @@ The M1A implementation of the DOCX evidence boundary is documented in [`DOCX_EXT
 
 The independent Contracts V2 EPUB renderer is documented in [`EPUB_ENGINE.md`](EPUB_ENGINE.md).
 
+M5B adds a native Contracts V3 renderer without downgrading `BookModelV3`.
+Logical break intent drives deterministic XHTML resource planning; source pages
+and source anchors remain non-authoritative. See [`EPUB_ENGINE.md`](EPUB_ENGINE.md)
+and [ADR-008](adr/ADR-008-v3-epub-resource-partitioning.md).
+
+M5B.1 adds typed logical-list truth at the M4 → Assembly → renderer boundary.
+Membership, order, kind, continuation identity, and nesting are explicit while
+item text remains source-backed. See [`LIST_CONTRACTS.md`](LIST_CONTRACTS.md)
+and [ADR-009](adr/ADR-009-logical-list-ownership.md).
+
+M5B.2 completes the mechanical list path: Assembly copies accepted M4 logical
+lists and the V3 renderer emits native `ol`/`ul`/`li` from that catalog only.
+No source numbering, indentation, adjacency, glyph, or layout inference occurs.
+
 The source-backed M3 classification boundary is documented in
 [`SEMANTIC_CONTRACTS.md`](SEMANTIC_CONTRACTS.md). Its output describes what
 evidence is and remains independent of flow, boundary, assembly, and rendering

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .artifact import ImmutableEpubArtifact
+from .assembly import BookModelV3
 from .book import BookModel
 from .common import SourceId
 from .delivery import DeliveryAttempt, DeliveryProfile, PreflightReport
@@ -43,6 +44,16 @@ class EpubBuilder(Protocol):
     def build(
         self,
         book: BookModel,
+        evidence_registry: EvidenceRegistry,
+        asset_resolver: AssetResolver,
+        output_path: Path,
+    ) -> ImmutableEpubArtifact: ...
+
+
+class EpubBuilderV3(Protocol):
+    def build(
+        self,
+        book: BookModelV3,
         evidence_registry: EvidenceRegistry,
         asset_resolver: AssetResolver,
         output_path: Path,

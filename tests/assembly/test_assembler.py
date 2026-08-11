@@ -27,11 +27,14 @@ from bookforge.contracts.flow import (
     LogicalBreakIntent,
     LogicalGroup,
     LogicalGroupType,
+    LogicalListId,
+    LogicalListKind,
+    LogicalListV3,
     ResolvedContentFlow,
     ResolvedFlowProvenance,
     StructuralBoundaryType,
 )
-from bookforge.contracts.ids import flow_decision_id, flow_group_id
+from bookforge.contracts.ids import flow_decision_id, flow_group_id, logical_list_id
 from bookforge.contracts.semantic import SemanticType
 
 from tests.contracts.test_m45_assembly_contracts import (
@@ -396,3 +399,111 @@ def test_assembly_package_has_no_source_renderer_or_ai_imports() -> None:
     source = Path("bookforge/assembly/assembler.py").read_text(encoding="utf-8")
     forbidden = ("bookforge.docx", "bookforge.pdf", "bookforge.epub", "openai", "ollama", "lxml")
     assert not any(item in source for item in forbidden)
+
+
+def accepted_list_input(
+    *, kind: LogicalListKind = LogicalListKind.UNORDERED, start_value: int | None = None
+) -> tuple[AssemblyInput, LogicalListV3]:
+    value = minimal_input(
+        nodes=(
+            text_node(1, SemanticType.BOOK_TITLE),
+            text_node(2, SemanticType.LIST_ITEM),
+            text_node(3, SemanticType.LIST_ITEM),
+            text_node(4, SemanticType.LIST_ITEM),
+        ),
+        paragraph_ids=(2, 3, 4),
+    )
+    list_id = LogicalListId(
+        logical_list_id(
+            kind=kind.value,
+            member_fragment_ids=[str(fid(2)), str(fid(3)), str(fid(4))],
+            start_value=start_value,
+        )
+    )
+    logical_list = LogicalListV3(
+        list_id=list_id,
+        kind=kind,
+        member_fragment_ids=(fid(2), fid(3), fid(4)),
+        start_value=start_value,
+    )
+    flow = value.resolved_flow.model_copy(update={"logical_lists": (logical_list,)})
+    return value.model_copy(update={"resolved_flow": flow}), logical_list
+
+
+@pytest.mark.parametrize(
+    ("kind", "start"),
+    [(LogicalListKind.UNORDERED, None), (LogicalListKind.ORDERED, 3)],
+)
+def test_assembler_materializes_list_truth_mechanically(
+    kind: LogicalListKind, start: int | None
+) -> None:
+    value, logical_list = accepted_list_input(kind=kind, start_value=start)
+    before = value.model_dump_json()
+    model = BookAssembler().assemble(value)
+    assert model.logical_lists == (logical_list,)
+    assert model.logical_lists[0].member_fragment_ids == (fid(2), fid(3), fid(4))
+    assert model.logical_lists[0].start_value == start
+    assert value.model_dump_json() == before
+
+
+def test_list_truth_changes_revision_but_identical_input_is_stable() -> None:
+    unordered, _ = accepted_list_input()
+    ordered, _ = accepted_list_input(kind=LogicalListKind.ORDERED)
+    assembler = BookAssembler()
+    first = assembler.assemble(unordered)
+    second = assembler.assemble(unordered)
+    changed = assembler.assemble(ordered)
+    assert first == second
+    assert first.revision == second.revision
+    assert first.model_dump_json() == second.model_dump_json()
+    assert changed.revision != first.revision
+
+
+def test_excluded_active_list_member_is_blocked_by_preflight() -> None:
+    value, _ = accepted_list_input()
+    decisions = tuple(
+        decision.model_copy(update={"inclusion": InclusionType.EXCLUDE})
+        if decision.target_fragment_id == fid(3)
+        else decision
+        for decision in value.resolved_flow.inclusion_decisions
+    )
+    chapter = value.resolved_flow.groups[1].model_copy(
+        update={"member_fragment_ids": (fid(2), fid(4)), "opening_fragment_ids": (fid(2),)}
+    )
+    flow = value.resolved_flow.model_copy(
+        update={
+            "ordered_fragment_ids": (fid(1), fid(2), fid(4)),
+            "groups": (value.resolved_flow.groups[0], chapter),
+            "inclusion_decisions": decisions,
+        }
+    )
+    report = BookAssembler().preflight(value.model_copy(update={"resolved_flow": flow}))
+    assert not report.ready
+    assert AssemblyReadinessCode.REFERENTIAL_INTEGRITY_FAILURE in {item.code for item in report.findings}
+
+
+def test_assembler_preserves_explicit_nested_list_relationship() -> None:
+    value = minimal_input(
+        nodes=(
+            text_node(1, SemanticType.BOOK_TITLE),
+            *(text_node(item, SemanticType.LIST_ITEM) for item in range(2, 6)),
+        ),
+        paragraph_ids=(2, 3, 4, 5),
+    )
+    parent = LogicalListV3(
+        list_id=LogicalListId("list_aaaaaaaaaaaaaaaaaaaa"),
+        kind=LogicalListKind.UNORDERED,
+        member_fragment_ids=(fid(2), fid(5)),
+    )
+    child = LogicalListV3(
+        list_id=LogicalListId("list_bbbbbbbbbbbbbbbbbbbb"),
+        kind=LogicalListKind.ORDERED,
+        member_fragment_ids=(fid(3), fid(4)),
+        parent_list_id=parent.list_id,
+        parent_item_fragment_id=fid(2),
+    )
+    flow = value.resolved_flow.model_copy(update={"logical_lists": (parent, child)})
+    model = BookAssembler().assemble(value.model_copy(update={"resolved_flow": flow}))
+    assert model.logical_lists == (parent, child)
+    assert model.logical_lists[1].parent_list_id == parent.list_id
+    assert model.logical_lists[1].parent_item_fragment_id == fid(2)

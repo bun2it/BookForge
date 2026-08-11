@@ -16,3 +16,11 @@ class InvalidInternalReferenceError(EpubBuildError):
 
 class EpubPackagingError(EpubBuildError):
     """The EPUB ZIP package could not be constructed or validated."""
+
+
+class InvalidContinuityError(InvalidBookModelError):
+    """Accepted continuity cannot be executed safely by the renderer."""
+
+
+class UnsupportedV3ContentError(InvalidBookModelError):
+    """A V3 node lacks a deterministic supported EPUB representation."""

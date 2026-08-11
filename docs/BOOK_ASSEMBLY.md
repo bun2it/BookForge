@@ -57,7 +57,7 @@ Assembly stores no cleaned, normalized, joined, rewritten, or generated text.
 operations between unchanged nodes. Assembly never executes joins, merges rows,
 reconstructs cells, or regenerates list text.
 
-## Figures, captions, tables, and assets
+## Figures, captions, tables, lists, and assets
 
 Figures follow final M4 logical order and require accepted placement. Source
 anchors remain evidence only. Captions require explicit accepted association;
@@ -65,6 +65,12 @@ adjacency and styling are not interpreted. Tables remain source-backed semantic
 table nodes without reconstruction. Typed asset references are retained and
 validated without loading or transforming bytes. Covers are copied only from
 explicit metadata and are never auto-selected.
+
+M5B.2 mechanically copies `ResolvedContentFlow.logical_lists` into
+`BookModelV3.logical_lists`. Preflight rejects excluded, missing, or wrongly
+typed members; final model validation enforces order, structural ownership,
+nesting, and CONTINUE_LIST consistency. Assembly never derives a list from
+adjacent LIST_ITEM nodes and never chooses its kind.
 
 ## Determinism and complexity
 

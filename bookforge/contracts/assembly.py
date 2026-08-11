@@ -28,6 +28,8 @@ from .flow import (
     InclusionType,
     LogicalBoundaryDecision,
     LogicalBreakIntent,
+    LogicalListId,
+    LogicalListV3,
     ResolvedContentFlow,
     StructuralBoundaryType,
 )
@@ -456,6 +458,7 @@ class BookModelV3(FrozenContractModel):
     back_matter: MatterV3 = MatterV3()
     content: BookContentCatalogV3
     continuity: tuple[LogicalContinuityV3, ...] = ()
+    logical_lists: tuple[LogicalListV3, ...] = ()
     provenance: AssemblyProvenance
 
     @model_validator(mode="after")
@@ -506,6 +509,60 @@ class BookModelV3(FrozenContractModel):
             raise ValueError("unsupported semantic content cannot enter renderable reading order")
         positions = {fragment_id: index for index, (fragment_id, _) in enumerate(ordered_paths)}
         paths = dict(ordered_paths)
+        list_ids = [item.list_id for item in self.logical_lists]
+        if len(list_ids) != len(set(list_ids)):
+            raise ValueError("logical list IDs must be unique")
+        lists_by_id = {item.list_id: item for item in self.logical_lists}
+        item_owner: dict[FragmentId, LogicalListId] = {}
+        endpoint_owner: dict[FragmentId, LogicalListId] = {}
+        for logical_list in self.logical_lists:
+            previous_position = -1
+            list_path: tuple[str, ...] | None = None
+            for member_id in logical_list.member_fragment_ids:
+                member_node = self.content.nodes.get(member_id)
+                if not isinstance(member_node, TextSemanticNode) or member_node.semantic_type is not SemanticType.LIST_ITEM:
+                    raise ValueError("logical list members must resolve to LIST_ITEM text nodes")
+                if member_id not in positions:
+                    raise ValueError("logical list member must be included in final reading order")
+                if positions[member_id] <= previous_position:
+                    raise ValueError("logical list member order must follow final reading order")
+                previous_position = positions[member_id]
+                if member_id in item_owner:
+                    raise ValueError("a list item may belong to only one logical list")
+                item_owner[member_id] = logical_list.list_id
+                endpoint_owner[member_id] = logical_list.list_id
+                if list_path is None:
+                    list_path = paths[member_id]
+                elif paths[member_id] != list_path:
+                    raise ValueError("logical list cannot cross structural containers")
+            for segment_id in logical_list.source_segment_fragment_ids:
+                segment = self.content.nodes.get(segment_id)
+                if not isinstance(segment, TextSemanticNode) or segment.semantic_type is not SemanticType.LIST:
+                    raise ValueError("logical list source segments must resolve to LIST text nodes")
+                if segment_id not in positions:
+                    raise ValueError("logical list source segment must be included in final reading order")
+                if paths[segment_id] != list_path:
+                    raise ValueError("logical list source segment cannot cross structural containers")
+                if segment_id in endpoint_owner and endpoint_owner[segment_id] != logical_list.list_id:
+                    raise ValueError("logical list endpoint belongs to conflicting lists")
+                endpoint_owner[segment_id] = logical_list.list_id
+            if logical_list.parent_list_id is not None:
+                parent = lists_by_id.get(logical_list.parent_list_id)
+                if parent is None:
+                    raise ValueError("nested list references an unknown parent list")
+                assert logical_list.parent_item_fragment_id is not None
+                if logical_list.parent_item_fragment_id not in parent.member_fragment_ids:
+                    raise ValueError("nested list parent item must belong to its parent list")
+                if paths[logical_list.parent_item_fragment_id] != list_path:
+                    raise ValueError("nested list cannot cross structural containers")
+        for logical_list in self.logical_lists:
+            seen: set[LogicalListId] = set()
+            current: LogicalListV3 | None = logical_list
+            while current is not None and current.parent_list_id is not None:
+                if current.list_id in seen:
+                    raise ValueError("logical list nesting contains a cycle")
+                seen.add(current.list_id)
+                current = lists_by_id.get(current.parent_list_id)
         edges: set[tuple[FragmentId, FragmentId]] = set()
         decisions: set[FlowDecisionId] = set()
         for continuity in self.continuity:
@@ -533,6 +590,11 @@ class BookModelV3(FrozenContractModel):
                 and right.semantic_type in {SemanticType.LIST, SemanticType.LIST_ITEM}
             ):
                 raise ValueError("list continuity requires two list-family text nodes")
+            if continuity.operation is ContinuityType.CONTINUE_LIST and self.logical_lists:
+                left_owner = endpoint_owner.get(continuity.left_node_id)
+                right_owner = endpoint_owner.get(continuity.right_node_id)
+                if left_owner is None or left_owner != right_owner:
+                    raise ValueError("CONTINUE_LIST endpoints must belong to one logical list")
             if continuity.operation is ContinuityType.CONTINUE_TABLE and not (
                 isinstance(left, TableSemanticNode) and isinstance(right, TableSemanticNode)
             ):
@@ -843,6 +905,7 @@ def assembly_revision_for_state(
     back_matter: MatterV3,
     content: BookContentCatalogV3,
     continuity: tuple[LogicalContinuityV3, ...],
+    logical_lists: tuple[LogicalListV3, ...],
     provenance: AssemblyProvenance,
 ) -> str:
     """Deterministic logical identity helper for the future mechanical assembler."""
@@ -855,6 +918,7 @@ def assembly_revision_for_state(
         "back_matter": back_matter.model_dump(mode="json"),
         "content": content.model_dump(mode="json"),
         "continuity": [edge.model_dump(mode="json") for edge in continuity],
+        "logical_lists": [item.model_dump(mode="json") for item in logical_lists],
         "provenance": provenance.model_dump(mode="json"),
     }
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))

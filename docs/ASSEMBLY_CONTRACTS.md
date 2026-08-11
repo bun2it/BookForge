@@ -1,5 +1,11 @@
 # M4.5 Book Assembly Contract Freeze
 
+M5B.1 additively permits `LogicalListV3` catalogs on accepted M4 flow and
+`BookModelV3`. The catalog references source-backed LIST_ITEM nodes and
+participates in deterministic revision identity. M5A runtime materialization is
+deferred; this contract-only hardening does not reopen the frozen assembler.
+See [`LIST_CONTRACTS.md`](LIST_CONTRACTS.md).
+
 ## Purpose and boundary
 
 Book Assembly is the mechanical boundary between accepted semantic/flow state

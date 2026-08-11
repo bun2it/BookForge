@@ -40,6 +40,7 @@ _FLOW_REVIEW_RE = re.compile(r"^fdr_[0-9a-f]{20}$")
 _FLOW_GROUP_RE = re.compile(
     r"^flow_(?:front_matter|back_matter|part|chapter|section|subsection)_\d{4,}$"
 )
+_LOGICAL_LIST_RE = re.compile(r"^list_[0-9a-f]{20}$")
 
 
 def _positive_order(value: int, label: str) -> int:
@@ -174,6 +175,27 @@ def flow_group_id(group_kind: str, order: int) -> str:
     return f"flow_{group_kind}_{_positive_order(order, 'order'):04d}"
 
 
+def logical_list_id(
+    *,
+    kind: str,
+    member_fragment_ids: Sequence[str],
+    parent_list_id: str | None = None,
+    parent_item_fragment_id: str | None = None,
+    start_value: int | None = None,
+) -> str:
+    """Derive logical list identity from accepted logical state, never source layout."""
+
+    components = (
+        kind,
+        tuple(member_fragment_ids),
+        parent_list_id,
+        parent_item_fragment_id,
+        start_value,
+    )
+    digest = hashlib.sha256(repr(components).encode("utf-8")).hexdigest()
+    return f"list_{digest[:20]}"
+
+
 def validate_stable_id(value: str) -> str:
     matched = any(
         pattern.fullmatch(value)
@@ -190,9 +212,10 @@ def validate_stable_id(value: str) -> str:
             _FLOW_DECISION_RE,
             _FLOW_REVIEW_RE,
             _FLOW_GROUP_RE,
+            _LOGICAL_LIST_RE,
         )
     )
-    hash_ids = ("doc_", "cls_", "rev_", "fld_", "fdr_")
+    hash_ids = ("doc_", "cls_", "rev_", "fld_", "fdr_", "list_")
     if matched and (value.startswith(hash_ids) or all(int(part) >= 1 for part in re.findall(r"\d+", value))):
         return value
     raise StableIdError(f"invalid BookForge stable ID: {value!r}")

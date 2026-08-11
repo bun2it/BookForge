@@ -43,6 +43,7 @@ class ContentFlow(ContractModel):
 FlowDecisionId = NewType("FlowDecisionId", str)
 FlowGroupId = NewType("FlowGroupId", str)
 FlowReviewId = NewType("FlowReviewId", str)
+LogicalListId = NewType("LogicalListId", str)
 
 
 class ContinuityType(StrEnum):
@@ -112,6 +113,44 @@ class InclusionType(StrEnum):
     INCLUDE = "include"
     EXCLUDE = "exclude"
     UNRESOLVED = "unresolved"
+
+
+class LogicalListKind(StrEnum):
+    ORDERED = "ordered"
+    UNORDERED = "unordered"
+
+
+class LogicalListV3(FrozenContractModel):
+    """Accepted logical list structure; item text remains in semantic nodes."""
+
+    list_id: LogicalListId
+    kind: LogicalListKind
+    member_fragment_ids: tuple[FragmentId, ...] = Field(min_length=1)
+    source_segment_fragment_ids: tuple[FragmentId, ...] = ()
+    parent_list_id: LogicalListId | None = None
+    parent_item_fragment_id: FragmentId | None = None
+    start_value: int | None = Field(default=None, ge=1)
+
+    @field_validator("list_id", "parent_list_id")
+    @classmethod
+    def stable_list_id(cls, value: LogicalListId | None) -> LogicalListId | None:
+        if value is not None:
+            validate_stable_id(str(value))
+        return value
+
+    @model_validator(mode="after")
+    def valid_local_structure(self) -> "LogicalListV3":
+        if len(self.member_fragment_ids) != len(set(self.member_fragment_ids)):
+            raise ValueError("logical list member IDs must be unique")
+        if len(self.source_segment_fragment_ids) != len(set(self.source_segment_fragment_ids)):
+            raise ValueError("logical list source segment IDs must be unique")
+        if (self.parent_list_id is None) != (self.parent_item_fragment_id is None):
+            raise ValueError("nested list requires both parent list and parent item")
+        if self.parent_list_id == self.list_id:
+            raise ValueError("logical list cannot parent itself")
+        if self.kind is LogicalListKind.UNORDERED and self.start_value is not None:
+            raise ValueError("unordered list cannot define an ordered start value")
+        return self
 
 
 class FlowReasonCode(StrEnum):
@@ -358,6 +397,7 @@ class ResolvedContentFlow(FrozenContractModel):
     figure_placements: tuple[FigurePlacement, ...] = ()
     caption_associations: tuple[CaptionAssociation, ...] = ()
     inclusion_decisions: tuple[InclusionDecision, ...] = ()
+    logical_lists: tuple[LogicalListV3, ...] = ()
     decision_reviews: tuple[FlowDecisionReview, ...] = ()
     unresolved_decision_ids: tuple[FlowDecisionId, ...] = ()
     provenance: ResolvedFlowProvenance
@@ -365,6 +405,33 @@ class ResolvedContentFlow(FrozenContractModel):
     @model_validator(mode="after")
     def validate_referential_integrity(self) -> "ResolvedContentFlow":
         source_ids = set(self.source_fragment_ids)
+        referenced_fragments: set[FragmentId] = set()
+        list_ids = [item.list_id for item in self.logical_lists]
+        if len(list_ids) != len(set(list_ids)):
+            raise ValueError("logical list IDs must be unique")
+        member_ids: list[FragmentId] = []
+        list_by_id = {item.list_id: item for item in self.logical_lists}
+        for logical_list in self.logical_lists:
+            member_ids.extend(logical_list.member_fragment_ids)
+            referenced_fragments.update(logical_list.member_fragment_ids)
+            referenced_fragments.update(logical_list.source_segment_fragment_ids)
+            if logical_list.parent_list_id is not None:
+                parent = list_by_id.get(logical_list.parent_list_id)
+                if parent is None:
+                    raise ValueError("nested list references an unknown parent list")
+                assert logical_list.parent_item_fragment_id is not None
+                if logical_list.parent_item_fragment_id not in parent.member_fragment_ids:
+                    raise ValueError("nested list parent item must belong to its parent list")
+        if len(member_ids) != len(set(member_ids)):
+            raise ValueError("a list item may belong to only one logical list")
+        for logical_list in self.logical_lists:
+            seen: set[LogicalListId] = set()
+            current: LogicalListV3 | None = logical_list
+            while current is not None and current.parent_list_id is not None:
+                if current.list_id in seen:
+                    raise ValueError("logical list nesting contains a cycle")
+                seen.add(current.list_id)
+                current = list_by_id.get(current.parent_list_id)
         if len(source_ids) != len(self.source_fragment_ids):
             raise ValueError("source fragment IDs must be unique")
         if len(self.ordered_fragment_ids) != len(set(self.ordered_fragment_ids)):
@@ -373,7 +440,6 @@ class ResolvedContentFlow(FrozenContractModel):
             raise ValueError("logical flow order references unknown source fragments")
 
         decision_ids: list[FlowDecisionId] = []
-        referenced_fragments: set[FragmentId] = set()
         for boundary in self.boundaries:
             decision_ids.append(boundary.audit.decision_id)
             if boundary.preceding_fragment_id is not None:
@@ -424,6 +490,15 @@ class ResolvedContentFlow(FrozenContractModel):
         ordered_positions = {
             fragment_id: index for index, fragment_id in enumerate(self.ordered_fragment_ids)
         }
+        for logical_list in self.logical_lists:
+            member_positions = [ordered_positions.get(item) for item in logical_list.member_fragment_ids]
+            if any(item is None for item in member_positions):
+                raise ValueError("logical list members must appear in final logical order")
+            known_positions = [item for item in member_positions if item is not None]
+            if known_positions != sorted(known_positions):
+                raise ValueError("logical list member order must follow final logical order")
+            if any(item not in ordered_positions for item in logical_list.source_segment_fragment_ids):
+                raise ValueError("logical list source segments must appear in final logical order")
         for inclusion in self.inclusion_decisions:
             present = inclusion.target_fragment_id in ordered_positions
             if inclusion.inclusion is InclusionType.EXCLUDE and present:

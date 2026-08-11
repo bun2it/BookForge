@@ -183,6 +183,7 @@ def model(
     revision = assembly_revision_for_state(
         metadata=metadata(), front_matter=MatterV3(), body=body, back_matter=MatterV3(),
         content=catalog, continuity=continuity, provenance=provenance(),
+        logical_lists=(),
     )
     return BookModelV3(
         revision=revision, metadata=metadata(), body=body, content=catalog,
