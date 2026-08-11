@@ -91,6 +91,28 @@ Assembly preserves them; a later V3 renderer executes them. See
 
 Small protocols in `bookforge.contracts.interfaces` express dependency direction. They are ports, not working implementations and not a single oversized engine interface.
 
+M6.0 adds an independent, corroboration-only PDF layout side channel. Rendered
+PDF pages/page pairs will eventually feed a provider-neutral
+`PdfLayoutScanner`; typed visual markers are then aligned to authoritative DOCX
+evidence before being offered to M3/M4 as observations. PDF never becomes a
+second authoritative content stream, and M5 remains PDF-unaware. See
+[`PDF_LAYOUT_CORROBORATION.md`](PDF_LAYOUT_CORROBORATION.md) and
+[ADR-013](adr/ADR-013-pdf-layout-is-corroborating-evidence.md).
+
+M6A implements that side channel's source mechanics with `pypdfium2`: lazy
+full-page PNG rendering, deterministic page/page-pair work units, strict typed
+scanner-result validation, and atomic resumable workspace persistence. It does
+not extract PDF content or invoke M3/M4/M5. See
+[`PDF_LAYOUT_RUNTIME.md`](PDF_LAYOUT_RUNTIME.md) and
+[ADR-014](adr/ADR-014-pdf-layout-runtime-and-scan-work-units.md).
+
+M6B reconciles immutable page/page-pair results into a deterministic,
+rebuildable visual-observation catalog. Identical shared IDs are deduplicated;
+conflicting payloads fail. Coverage/readiness is alignment-input diagnostics,
+not book truth. See
+[`PDF_LAYOUT_SCANNER_PIPELINE.md`](PDF_LAYOUT_SCANNER_PIPELINE.md) and
+[ADR-015](adr/ADR-015-pdf-scanner-results-are-immutable-visual-evidence.md).
+
 ## Immutable source content
 
 Raw evidence owns authoritative text. A `SemanticFragment` has one or more `SourceTextReference` values and deliberately has no `text` field. Unknown fields are rejected, making accidental AI-authored text invalid at the contract boundary.

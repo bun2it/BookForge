@@ -5,12 +5,15 @@ from .assembly import *
 from .book import BackMatter, BookMetadata, BookModel, Chapter, FrontMatter, Section
 from .classification import *
 from .common import *
+from .corroboration import *
 from .delivery import *
 from .evidence import *
 from .events import *
 from .flow import *
 from .ids import *
 from .library import *
+from .layout_alignment import *
+from .pdf_layout import *
 from .raw import *
 from .semantic import *
 from .source import *
