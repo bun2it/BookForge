@@ -44,6 +44,23 @@ M5B.2 completes the mechanical list path: Assembly copies accepted M4 logical
 lists and the V3 renderer emits native `ol`/`ul`/`li` from that catalog only.
 No source numbering, indentation, adjacency, glyph, or layout inference occurs.
 
+M4.8 makes the runtime semantic-to-flow handoff node-typed while retaining
+historical text fragments. Explicit list and FRONT/BODY/BACK truth is validated
+and materialized without source-layout inference. See
+[`SEMANTIC_FLOW_HANDOFF.md`](SEMANTIC_FLOW_HANDOFF.md) and
+[ADR-010](adr/ADR-010-typed-semantic-to-flow-handoff.md).
+
+M4.9 adds explicit accepted flow reviews. Original, review, and replacement
+remain separate; effective state controls unresolved inventory and inclusion
+order. Region transitions no longer duplicate continuity edges. See
+[`FLOW_REVIEWS.md`](FLOW_REVIEWS.md) and
+[ADR-011](adr/ADR-011-accepted-flow-review-boundary.md).
+
+M5C introduces the thin offline `PipelineRunner` that coordinates actual M1A,
+M3A, M4A/M4.9, M5A, M5B, and validation without taking ownership of any stage
+decision. See [`PIPELINE_INTEGRATION.md`](PIPELINE_INTEGRATION.md) and
+[ADR-012](adr/ADR-012-deterministic-pipeline-orchestration.md).
+
 The source-backed M3 classification boundary is documented in
 [`SEMANTIC_CONTRACTS.md`](SEMANTIC_CONTRACTS.md). Its output describes what
 evidence is and remains independent of flow, boundary, assembly, and rendering

@@ -1,5 +1,14 @@
 # M4A Deterministic Flow and Boundary Resolver
 
+As of M4.8, one resolver accepts historical text fragments and V3 typed nodes.
+Accepted lists and explicit structural regions are fingerprinted, validated,
+and materialized without inference. See
+[`SEMANTIC_FLOW_HANDOFF.md`](SEMANTIC_FLOW_HANDOFF.md).
+
+M4.9 accepts typed, already-reviewed replacements without inference. Original
+decisions remain immutable; review/replacement truth is validated,
+fingerprinted, and persisted separately. See [`FLOW_REVIEWS.md`](FLOW_REVIEWS.md).
+
 ## Scope
 
 M4A consumes accepted M3 semantic fragments and produces the typed M4.0

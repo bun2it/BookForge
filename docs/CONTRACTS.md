@@ -124,6 +124,16 @@ ordered start value without copied text. Contracts V3 remains active. See
 [`LIST_CONTRACTS.md`](LIST_CONTRACTS.md) and
 [ADR-009](adr/ADR-009-logical-list-ownership.md).
 
+M4.8 remains additive within Contracts V3. `StructuralRegionAssignment`, the
+existing typed semantic union, and `LogicalListV3` form the explicit M4 input
+boundary; no serialized V3 meaning is replaced. See
+[`SEMANTIC_FLOW_HANDOFF.md`](SEMANTIC_FLOW_HANDOFF.md).
+
+M4.9 additively records typed `replacement_decisions` on
+`ResolvedContentFlow`, paired with existing `FlowDecisionReview` values. This
+validates effective reviewed state without mutating originals or using hidden
+metadata. Contracts V3 remains active.
+
 ## Table, figure, and artifact decisions
 
 `SemanticTable` records source-backed rows/cells, spans when known, header evidence, confidence, and a preferred future rendering strategy. `SemanticFigure` records a source image, optional caption/anchor, dimensions, classification, confidence, and keep/drop/review. `ArtifactClassification` records evidence and an explicit exclusion flag without removing it.

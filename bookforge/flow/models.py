@@ -2,15 +2,37 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Mapping
+from typing import Annotated, Mapping, TypeAlias
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from bookforge.contracts.classification import ClassificationResult, Fingerprint
 from bookforge.contracts.common import DocumentId, FragmentId, FrozenContractModel, SourceId
 from bookforge.contracts.evidence import EvidenceRegistry
-from bookforge.contracts.flow import ResolvedContentFlow
+from bookforge.contracts.assembly import SemanticContentNode
+from bookforge.contracts.flow import (
+    CaptionAssociation, FigurePlacement, FlowDecisionReview, InclusionDecision,
+    LogicalBoundaryDecision, LogicalListV3, ResolvedContentFlow, StructuralRegionAssignment,
+)
 from bookforge.contracts.semantic import SemanticFragment, SemanticType
+
+FlowInputNode = SemanticContentNode | SemanticFragment
+FlowReplacementDecision: TypeAlias = (
+    LogicalBoundaryDecision | InclusionDecision | FigurePlacement | CaptionAssociation
+)
+
+
+class AcceptedFlowReviewInput(FrozenContractModel):
+    """Explicit accepted review and its immutable replacement decision."""
+
+    review: FlowDecisionReview
+    replacement_decision: FlowReplacementDecision
+
+    @model_validator(mode="after")
+    def matching_accepted_identity(self) -> "AcceptedFlowReviewInput":
+        if self.review.accepted_decision_id != self.replacement_decision.audit.decision_id:
+            raise ValueError("accepted review ID must match replacement decision ID")
+        return self
 
 FLOW_RESOLVER_VERSION = "m4a-v1"
 DEFAULT_FLOW_POLICY_VERSION = "deterministic-flow-v1"
@@ -65,11 +87,14 @@ class FlowResolverPolicy(FrozenContractModel):
 @dataclass(frozen=True, slots=True)
 class FlowResolverInput:
     document_id: DocumentId
-    ordered_fragments: tuple[SemanticFragment, ...]
+    ordered_fragments: tuple[FlowInputNode, ...]
     accepted_classifications: Mapping[FragmentId, ClassificationResult]
     evidence_registry: EvidenceRegistry
     source_features: Mapping[FragmentId, FlowSourceFeatures]
     semantic_taxonomy_version: str
+    accepted_logical_lists: tuple[LogicalListV3, ...] = ()
+    structural_regions: StructuralRegionAssignment | None = None
+    accepted_flow_reviews: tuple[AcceptedFlowReviewInput, ...] = ()
 
 
 class FlowWorkUnit(FrozenContractModel):
@@ -99,7 +124,7 @@ class FlowWorkUnit(FrozenContractModel):
 @dataclass(frozen=True, slots=True)
 class FlowAnalysisView:
     work_unit: FlowWorkUnit
-    target_fragments: tuple[SemanticFragment, ...]
+    target_fragments: tuple[FlowInputNode, ...]
     target_texts: tuple[str | None, ...]
     context_before_types: tuple[SemanticType, ...]
     context_after_types: tuple[SemanticType, ...]
@@ -154,3 +179,4 @@ class FlowResolverReport(FrozenContractModel):
     groups: int
     unresolved: int
     resolved_flow: ResolvedContentFlow | None = None
+    accepted_replacement_decisions: tuple[FlowReplacementDecision, ...] = ()

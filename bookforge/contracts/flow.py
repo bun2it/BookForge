@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal, NewType
+from typing import Literal, NewType, TypeAlias
 
 from pydantic import Field, field_validator, model_validator
 
@@ -88,6 +88,20 @@ class LogicalGroupType(StrEnum):
     CHAPTER = "chapter"
     SECTION = "section"
     SUBSECTION = "subsection"
+
+
+class StructuralRegion(StrEnum):
+    """Explicit upstream structural ownership; source position is not consulted."""
+
+    FRONT = "front"
+    BODY = "body"
+    BACK = "back"
+
+
+class StructuralRegionAssignment(FrozenContractModel):
+    """One authoritative region assignment per listed semantic node."""
+
+    by_fragment_id: dict[FragmentId, StructuralRegion]
 
 
 class FigurePlacementRelation(StrEnum):
@@ -388,6 +402,11 @@ class ResolvedFlowProvenance(FrozenContractModel):
     created_at: datetime
 
 
+FlowReplacementDecision: TypeAlias = (
+    LogicalBoundaryDecision | FigurePlacement | CaptionAssociation | InclusionDecision
+)
+
+
 class ResolvedContentFlow(FrozenContractModel):
     revision: str = Field(min_length=1)
     source_fragment_ids: tuple[FragmentId, ...] = Field(min_length=1)
@@ -399,6 +418,7 @@ class ResolvedContentFlow(FrozenContractModel):
     inclusion_decisions: tuple[InclusionDecision, ...] = ()
     logical_lists: tuple[LogicalListV3, ...] = ()
     decision_reviews: tuple[FlowDecisionReview, ...] = ()
+    replacement_decisions: tuple[FlowReplacementDecision, ...] = ()
     unresolved_decision_ids: tuple[FlowDecisionId, ...] = ()
     provenance: ResolvedFlowProvenance
 
@@ -475,6 +495,43 @@ class ResolvedContentFlow(FrozenContractModel):
         if len(decision_ids) != len(set(decision_ids)):
             raise ValueError("flow decision IDs must be unique")
         actual_decision_ids = set(decision_ids)
+        replacement_by_id = {
+            item.audit.decision_id: item for item in self.replacement_decisions
+        }
+        if len(replacement_by_id) != len(self.replacement_decisions):
+            raise ValueError("replacement flow decision IDs must be unique")
+        original_decisions: tuple[FlowReplacementDecision, ...] = (
+            *self.boundaries,
+            *self.figure_placements,
+            *self.caption_associations,
+            *self.inclusion_decisions,
+        )
+        originals_by_id = {
+            item.audit.decision_id: item for item in original_decisions
+        }
+        effective_by_original = dict(originals_by_id)
+        if self.replacement_decisions:
+            reviewed_originals: set[FlowDecisionId] = set()
+            for review in self.decision_reviews:
+                if review.original_decision_id in reviewed_originals:
+                    raise ValueError("flow decision may have only one accepted review")
+                reviewed_originals.add(review.original_decision_id)
+                original = originals_by_id.get(review.original_decision_id)
+                if original is None:
+                    raise ValueError("flow review references an unknown original decision")
+                replacement = replacement_by_id.get(review.accepted_decision_id)
+                if review.status is ReviewStatus.REVIEWED_ACCEPTED:
+                    replacement = original
+                if replacement is None or type(replacement) is not type(original):
+                    raise ValueError("flow review replacement is missing or incompatible")
+                effective_by_original[review.original_decision_id] = replacement
+            referenced_replacements = {
+                review.accepted_decision_id
+                for review in self.decision_reviews
+                if review.status is ReviewStatus.REVIEWED_OVERRIDDEN
+            }
+            if set(replacement_by_id) != referenced_replacements:
+                raise ValueError("replacement decisions must correspond exactly to accepted reviews")
         group_ids = {group.group_id for group in self.groups}
         if len(group_ids) != len(self.groups):
             raise ValueError("logical group IDs must be unique")
@@ -500,10 +557,12 @@ class ResolvedContentFlow(FrozenContractModel):
             if any(item not in ordered_positions for item in logical_list.source_segment_fragment_ids):
                 raise ValueError("logical list source segments must appear in final logical order")
         for inclusion in self.inclusion_decisions:
+            effective_inclusion = effective_by_original[inclusion.audit.decision_id]
+            assert isinstance(effective_inclusion, InclusionDecision)
             present = inclusion.target_fragment_id in ordered_positions
-            if inclusion.inclusion is InclusionType.EXCLUDE and present:
+            if effective_inclusion.inclusion is InclusionType.EXCLUDE and present:
                 raise ValueError("excluded fragments must not appear in final logical order")
-            if inclusion.inclusion is InclusionType.INCLUDE and not present:
+            if effective_inclusion.inclusion is InclusionType.INCLUDE and not present:
                 raise ValueError("included fragments must appear in final logical order")
         for placement in self.figure_placements:
             if placement.relation is FigurePlacementRelation.UNRESOLVED:

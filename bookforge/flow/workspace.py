@@ -82,6 +82,12 @@ class FlowWorkspace:
     def write_review(self, review: FlowDecisionReview) -> None:
         self._write_model(self.reviews_dir / f"{review.review_id}.json", review)
 
+    def write_replacement(self, decision: BaseModel) -> None:
+        decision_id = getattr(decision, "audit").decision_id
+        replacement_dir = self.reviews_dir / "replacements"
+        replacement_dir.mkdir(parents=True, exist_ok=True)
+        self._write_model(replacement_dir / f"{decision_id}.json", decision)
+
     def write_failure(self, failure: FlowFailureRecord) -> None:
         self._write_model(self.failures_dir / f"{failure.work_unit_id}.json", failure)
 

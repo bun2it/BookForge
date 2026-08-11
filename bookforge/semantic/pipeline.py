@@ -15,6 +15,20 @@ from bookforge.contracts.classification import (
     ClassifierKind,
     ReviewStatus,
 )
+from bookforge.contracts.assembly import (
+    EvidenceKind,
+    EvidenceReference,
+    FigureDataV3,
+    FigureSemanticNode,
+    SemanticContentNode,
+    TableCellV3,
+    TableDataV3,
+    TableRowV3,
+    TableSemanticNode,
+    TextSemanticNode,
+    UnsupportedContentKind,
+    UnsupportedSemanticNode,
+)
 from bookforge.contracts.common import ProcessingProvenance, SourceId, TransformationStage
 from bookforge.contracts.evidence import EvidenceRegistry
 from bookforge.contracts.ids import classification_result_id, semantic_fragment_id
@@ -498,6 +512,80 @@ def materialize_fragment(
             processor_version=result.classifier.version,
             created_at=EPOCH,
         ),
+    )
+
+
+def materialize_flow_node(
+    result: ClassificationResult,
+    unit: SemanticWorkUnit,
+    raw_document: RawDocument,
+) -> SemanticContentNode | None:
+    """Project an accepted M3 result into the source-neutral V3 flow union.
+
+    Identity is the historical deterministic semantic ID for the work-unit
+    sequence. UNKNOWN non-text evidence deliberately remains unresolved.
+    """
+    fragment_id = semantic_fragment_id(unit.sequence_index + 1)
+    objects = {item.id: item for item in _document_objects(raw_document)}
+    targets = tuple(objects[source_id] for source_id in result.target_source_ids)
+    if result.semantic_type is SemanticType.FIGURE:
+        images = [item for item in targets if isinstance(item, RawImage)]
+        if len(images) != 1 or len(targets) != 1:
+            raise InvalidClassificationResultError("FIGURE requires one explicitly targeted RawImage")
+        image = images[0]
+        return FigureSemanticNode(
+            id=fragment_id,
+            evidence=(EvidenceReference(source_id=image.id, kind=EvidenceKind.IMAGE, asset_reference=image.asset_reference),),
+            figure=FigureDataV3(fragment_id=fragment_id, source_image_id=image.id, confidence=result.confidence),
+        )
+    if result.semantic_type is SemanticType.TABLE:
+        tables = [item for item in targets if isinstance(item, RawTable)]
+        if len(tables) != 1 or len(targets) != 1:
+            raise InvalidClassificationResultError("TABLE requires one explicitly targeted RawTable")
+        table = tables[0]
+        rows = tuple(
+            TableRowV3(
+                index=row.index,
+                cells=tuple(
+                    TableCellV3(
+                        row_index=cell.row_index,
+                        column_index=cell.column_index,
+                        source_references=(SourceTextReference(source_id=cell.id),),
+                        row_span=cell.row_span,
+                        column_span=cell.column_span,
+                    )
+                    for cell in row.cells
+                ),
+            )
+            for row in table.rows
+        )
+        return TableSemanticNode(
+            id=fragment_id,
+            evidence=(EvidenceReference(source_id=table.id, kind=EvidenceKind.TABLE),),
+            table=TableDataV3(fragment_id=fragment_id, source_ids=(table.id,), rows=rows),
+        )
+    if any(isinstance(item, RawDrawing) for item in targets):
+        if result.semantic_type is SemanticType.UNKNOWN:
+            return None
+        if result.semantic_type not in {SemanticType.ARTIFACT, SemanticType.DECORATIVE}:
+            raise InvalidClassificationResultError("drawing classification is incompatible with unsupported node family")
+        return UnsupportedSemanticNode(
+            id=fragment_id,
+            content_kind=UnsupportedContentKind.DRAWING,
+            evidence=tuple(EvidenceReference(source_id=item.id, kind=EvidenceKind.DRAWING) for item in targets),
+            reason_code=f"accepted_{result.semantic_type.value}",
+        )
+    if not result.source_references:
+        return None
+    return TextSemanticNode(
+        id=fragment_id,
+        semantic_type=result.semantic_type,
+        source_references=result.source_references,
+        source_evidence=tuple(
+            EvidenceReference(source_id=reference.source_id, kind=EvidenceKind.TEXT)
+            for reference in result.source_references
+        ),
+        confidence=result.confidence,
     )
 
 

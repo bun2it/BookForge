@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,10 @@ from bookforge.contracts.classification import (
     ReviewStatus,
 )
 from bookforge.contracts.common import DocumentId, ProcessingProvenance, TransformationStage
+from bookforge.contracts.assembly import (
+    EvidenceKind, EvidenceReference, FigureDataV3, FigureSemanticNode,
+    TableDataV3, TableSemanticNode, UnsupportedContentKind, UnsupportedSemanticNode,
+)
 from bookforge.contracts.evidence import EvidenceRegistry
 from bookforge.contracts.flow import (
     CaptionAssociationStatus,
@@ -23,13 +28,20 @@ from bookforge.contracts.flow import (
     FigurePlacement,
     LogicalBreakIntent,
     LogicalGroupType,
+    LogicalListKind,
+    LogicalListV3,
+    StructuralRegion,
+    StructuralRegionAssignment,
     StructuralBoundaryType,
+    FlowDecisionReview,
+    ResolverIdentity,
+    ResolverKind,
 )
 from bookforge.contracts.ids import classification_result_id
 from bookforge.contracts.raw import RawParagraph
 from bookforge.contracts.semantic import SemanticFragment, SemanticType
 from bookforge.contracts.source import SourceTextReference
-from bookforge.flow.models import FlowResolverInput, FlowResolverPolicy, FlowSourceFeatures
+from bookforge.flow.models import AcceptedFlowReviewInput, FlowResolverInput, FlowResolverPolicy, FlowSourceFeatures
 from bookforge.flow.policy import DEFAULT_RULES, FlowRule
 from bookforge.flow.resolver import (
     EPOCH,
@@ -129,6 +141,256 @@ def test_work_units_preserve_order_have_stable_ids_and_runtime_only_text() -> No
     view = build_flow_analysis_view(boundary, resolver_input)
     assert view.target_texts == ("A", "B")
     assert "target_texts" not in boundary.model_dump_json()
+
+
+def test_actual_typed_non_text_nodes_reach_real_m4_without_fake_text(tmp_path: Path) -> None:
+    resolver_input, _ = make_input([
+        (SemanticType.PARAGRAPH, "before"),
+        (SemanticType.FIGURE, "legacy placeholder"),
+        (SemanticType.TABLE, "legacy placeholder"),
+        (SemanticType.ARTIFACT, "legacy placeholder"),
+    ], features={2: {"logical_sequence_explicit": True}, 3: {"source_boundary_before": True, "continuation_group_id": "t"}})
+    nodes = list(resolver_input.ordered_fragments)
+    nodes[1] = FigureSemanticNode(
+        id="sem_f000002",
+        evidence=(EvidenceReference(source_id="docx_img000002", kind=EvidenceKind.IMAGE, asset_reference="assets/image2.png"),),
+        figure=FigureDataV3(fragment_id="sem_f000002", source_image_id="docx_img000002"),
+    )
+    nodes[2] = TableSemanticNode(
+        id="sem_f000003",
+        evidence=(EvidenceReference(source_id="docx_tbl000003", kind=EvidenceKind.TABLE),),
+        table=TableDataV3(fragment_id="sem_f000003", source_ids=("docx_tbl000003",), rows=()),
+    )
+    nodes[3] = UnsupportedSemanticNode(
+        id="sem_f000004", content_kind=UnsupportedContentKind.DRAWING,
+        evidence=(EvidenceReference(source_id="docx_drw000004", kind=EvidenceKind.DRAWING),),
+        reason_code="accepted_artifact",
+    )
+    typed_input = replace(resolver_input, ordered_fragments=tuple(nodes))
+    flow = DeterministicFlowResolver().run(typed_input, tmp_path).resolved_flow
+    assert flow is not None
+    assert flow.source_fragment_ids == tuple(node.id for node in nodes)
+    assert flow.figure_placements[0].figure_fragment_id == "sem_f000002"
+    assert "source_references" not in nodes[1].model_dump()
+    assert "source_references" not in nodes[2].model_dump()
+
+
+def test_explicit_logical_list_is_carried_and_adjacent_items_do_not_infer_one(tmp_path: Path) -> None:
+    resolver_input, _ = make_input([
+        (SemanticType.LIST_ITEM, "A"), (SemanticType.LIST_ITEM, "B"), (SemanticType.LIST_ITEM, "C")
+    ])
+    without_truth = DeterministicFlowResolver().run(resolver_input, tmp_path / "none").resolved_flow
+    assert without_truth is not None and without_truth.logical_lists == ()
+    accepted = LogicalListV3(
+        list_id="list_aaaaaaaaaaaaaaaaaaaa", kind=LogicalListKind.ORDERED,
+        member_fragment_ids=("sem_f000001", "sem_f000002", "sem_f000003"), start_value=4,
+    )
+    with_truth = replace(resolver_input, accepted_logical_lists=(accepted,))
+    resolved = DeterministicFlowResolver().run(with_truth, tmp_path / "accepted").resolved_flow
+    assert resolved is not None and resolved.logical_lists == (accepted,)
+
+
+def test_explicit_regions_control_front_body_back_order_and_groups(tmp_path: Path) -> None:
+    resolver_input, _ = make_input([
+        (SemanticType.PARAGRAPH, "body preface"),
+        (SemanticType.CHAPTER_HEADING, "chapter"),
+        (SemanticType.BOOK_TITLE, "front"),
+        (SemanticType.NOTE, "back"),
+    ])
+    regions = StructuralRegionAssignment(by_fragment_id={
+        "sem_f000001": StructuralRegion.BODY, "sem_f000002": StructuralRegion.BODY,
+        "sem_f000003": StructuralRegion.FRONT, "sem_f000004": StructuralRegion.BACK,
+    })
+    value = replace(resolver_input, structural_regions=regions)
+    flow = DeterministicFlowResolver().run(value, tmp_path).resolved_flow
+    assert flow is not None
+    assert flow.ordered_fragment_ids == ("sem_f000003", "sem_f000001", "sem_f000002", "sem_f000004")
+    assert {group.group_type for group in flow.groups} >= {
+        LogicalGroupType.FRONT_MATTER, LogicalGroupType.CHAPTER, LogicalGroupType.BACK_MATTER,
+    }
+    transitions = {item.structural_boundary for item in flow.boundaries}
+    assert StructuralBoundaryType.FRONT_MATTER_TRANSITION in transitions
+    assert StructuralBoundaryType.BACK_MATTER_TRANSITION in transitions
+
+
+def test_changed_list_or_region_truth_changes_work_unit_fingerprint() -> None:
+    resolver_input, _ = make_input([(SemanticType.LIST_ITEM, "A"), (SemanticType.LIST_ITEM, "B")])
+    unordered = LogicalListV3(list_id="list_aaaaaaaaaaaaaaaaaaaa", kind=LogicalListKind.UNORDERED, member_fragment_ids=("sem_f000001", "sem_f000002"))
+    ordered = LogicalListV3(list_id="list_aaaaaaaaaaaaaaaaaaaa", kind=LogicalListKind.ORDERED, member_fragment_ids=("sem_f000001", "sem_f000002"))
+    a = replace(resolver_input, accepted_logical_lists=(unordered,))
+    b = replace(resolver_input, accepted_logical_lists=(ordered,))
+    assert generate_flow_work_units(a, FlowResolverPolicy())[0].work_unit_id == generate_flow_work_units(b, FlowResolverPolicy())[0].work_unit_id
+    assert generate_flow_work_units(a, FlowResolverPolicy())[0].input_fingerprint != generate_flow_work_units(b, FlowResolverPolicy())[0].input_fingerprint
+
+
+def test_continue_list_without_list_truth_remains_explicitly_unresolved(tmp_path: Path) -> None:
+    resolver_input, _ = make_input(
+        [(SemanticType.LIST_ITEM, "A"), (SemanticType.LIST_ITEM, "B")],
+        features={
+            1: {"continuation_group_id": "list-a"},
+            2: {"source_boundary_before": True, "continuation_group_id": "list-a"},
+        },
+    )
+    flow = DeterministicFlowResolver().run(resolver_input, tmp_path).resolved_flow
+    assert flow is not None and flow.logical_lists == ()
+    boundary = flow.boundaries[0]
+    assert boundary.continuity is ContinuityType.CONTINUE_LIST
+    assert boundary.audit.decision_id in flow.unresolved_decision_ids
+
+
+def _accepted_override(original, replacement):
+    review = FlowDecisionReview(
+        review_id="fdr_aaaaaaaaaaaaaaaaaaaa",
+        original_decision_id=original.audit.decision_id,
+        status=ReviewStatus.REVIEWED_OVERRIDDEN,
+        accepted_decision_id=replacement.audit.decision_id,
+        reviewer=ResolverIdentity(name="fixture-reviewer", kind=ResolverKind.HUMAN_REVIEW, version="1"),
+        review_fingerprint="b" * 64,
+        created_at=EPOCH,
+    )
+    return AcceptedFlowReviewInput(review=review, replacement_decision=replacement)
+
+
+def test_accepted_boundary_review_preserves_original_and_clears_unresolved(tmp_path: Path) -> None:
+    resolver_input, _ = make_input([(SemanticType.PARAGRAPH, "A"), (SemanticType.PARAGRAPH, "B")])
+    baseline = DeterministicFlowResolver().run(resolver_input, tmp_path).resolved_flow
+    assert baseline is not None
+    original = baseline.boundaries[0]
+    original_json = original.model_dump_json()
+    replacement = original.model_copy(update={
+        "audit": original.audit.model_copy(update={"decision_id": "fld_bbbbbbbbbbbbbbbbbbbb"}),
+        "continuity": ContinuityType.JOIN_DIRECT,
+        "source_references": tuple(
+            reference for fragment in resolver_input.ordered_fragments
+            for reference in fragment.source_references
+        ),
+    })
+    reviewed_input = replace(
+        resolver_input, accepted_flow_reviews=(_accepted_override(original, replacement),)
+    )
+    report = DeterministicFlowResolver().run(reviewed_input, tmp_path)
+    flow = report.resolved_flow
+    assert flow is not None
+    assert flow.boundaries[0].model_dump_json() == original_json
+    assert flow.decision_reviews[0].original_decision_id == original.audit.decision_id
+    assert report.accepted_replacement_decisions == (replacement,)
+    assert original.audit.decision_id not in flow.unresolved_decision_ids
+    assert (tmp_path / "flow/reviews/fdr_aaaaaaaaaaaaaaaaaaaa.json").is_file()
+    assert (tmp_path / "flow/reviews/replacements/fld_bbbbbbbbbbbbbbbbbbbb.json").is_file()
+    persisted_before = {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in sorted((tmp_path / "flow").rglob("*.json")) if path.name != "manifest.json"
+    }
+    repeated = DeterministicFlowResolver().run(reviewed_input, tmp_path)
+    assert repeated.resolved_flow == flow
+    assert repeated.reused == repeated.total_work_units
+    assert persisted_before == {
+        path.relative_to(tmp_path): path.read_bytes()
+        for path in sorted((tmp_path / "flow").rglob("*.json")) if path.name != "manifest.json"
+    }
+
+
+def test_reviewed_inclusion_controls_order_and_wrong_family_is_rejected(tmp_path: Path) -> None:
+    resolver_input, _ = make_input([(SemanticType.ARTIFACT, "drawing placeholder")])
+    unsupported = UnsupportedSemanticNode(
+        id="sem_f000001", content_kind=UnsupportedContentKind.DRAWING,
+        evidence=(EvidenceReference(source_id="docx_drw000001", kind=EvidenceKind.DRAWING),),
+        reason_code="accepted_artifact",
+    )
+    typed = replace(resolver_input, ordered_fragments=(unsupported,))
+    baseline = DeterministicFlowResolver().run(typed, tmp_path / "base").resolved_flow
+    assert baseline is not None
+    original = baseline.inclusion_decisions[0]
+    replacement = original.model_copy(update={
+        "audit": original.audit.model_copy(update={"decision_id": "fld_cccccccccccccccccccc"}),
+        "inclusion": InclusionType.EXCLUDE,
+    })
+    reviewed = replace(typed, accepted_flow_reviews=(_accepted_override(original, replacement),))
+    flow = DeterministicFlowResolver().run(reviewed, tmp_path / "excluded").resolved_flow
+    assert flow is not None
+    assert flow.source_fragment_ids == (unsupported.id,)
+    assert flow.ordered_fragment_ids == ()
+    boundary_input, _ = make_input([(SemanticType.PARAGRAPH, "A"), (SemanticType.PARAGRAPH, "B")])
+    boundary_flow = DeterministicFlowResolver().run(boundary_input, tmp_path / "boundary").resolved_flow
+    assert boundary_flow is not None
+    wrong = _accepted_override(boundary_flow.boundaries[0], replacement)
+    with pytest.raises(Exception, match="family"):
+        DeterministicFlowResolver().run(
+            replace(boundary_input, accepted_flow_reviews=(wrong,)), tmp_path / "wrong"
+        )
+
+
+def test_region_transitions_reconcile_existing_edges_without_duplicates(tmp_path: Path) -> None:
+    resolver_input, _ = make_input([
+        (SemanticType.BOOK_TITLE, "front"),
+        (SemanticType.CHAPTER_HEADING, "body"),
+        (SemanticType.NOTE, "back"),
+    ])
+    regions = StructuralRegionAssignment(by_fragment_id={
+        "sem_f000001": StructuralRegion.FRONT,
+        "sem_f000002": StructuralRegion.BODY,
+        "sem_f000003": StructuralRegion.BACK,
+    })
+    flow = DeterministicFlowResolver().run(
+        replace(resolver_input, structural_regions=regions), tmp_path
+    ).resolved_flow
+    assert flow is not None
+    edges = [(item.preceding_fragment_id, item.following_fragment_id) for item in flow.boundaries]
+    assert len(edges) == len(set(edges))
+    transitions = [item.structural_boundary for item in flow.boundaries]
+    assert transitions.count(StructuralBoundaryType.FRONT_MATTER_TRANSITION) == 1
+    assert transitions.count(StructuralBoundaryType.BACK_MATTER_TRANSITION) == 1
+
+
+def test_conflicting_and_stale_accepted_reviews_fail_deterministically(tmp_path: Path) -> None:
+    resolver_input, _ = make_input([(SemanticType.PARAGRAPH, "A"), (SemanticType.PARAGRAPH, "B")])
+    baseline = DeterministicFlowResolver().run(resolver_input, tmp_path / "base").resolved_flow
+    assert baseline is not None
+    original = baseline.boundaries[0]
+    refs = tuple(reference for fragment in resolver_input.ordered_fragments for reference in fragment.source_references)
+    replacement = original.model_copy(update={
+        "audit": original.audit.model_copy(update={"decision_id": "fld_dddddddddddddddddddd"}),
+        "continuity": ContinuityType.JOIN_WITH_NEWLINE, "source_references": refs,
+    })
+    first = _accepted_override(original, replacement)
+    second = first.model_copy(update={
+        "review": first.review.model_copy(update={"review_id": "fdr_bbbbbbbbbbbbbbbbbbbb"})
+    })
+    with pytest.raises(Exception, match="conflicting"):
+        DeterministicFlowResolver().run(
+            replace(resolver_input, accepted_flow_reviews=(first, second)), tmp_path / "conflict"
+        )
+    stale = replacement.model_copy(update={
+        "audit": replacement.audit.model_copy(update={
+            "provenance": replacement.audit.provenance.model_copy(update={"input_fingerprint": "c" * 64})
+        })
+    })
+    with pytest.raises(Exception, match="stale"):
+        DeterministicFlowResolver().run(
+            replace(resolver_input, accepted_flow_reviews=(_accepted_override(original, stale),)),
+            tmp_path / "stale",
+        )
+
+
+def test_reviewed_exclusion_cannot_silently_damage_logical_list(tmp_path: Path) -> None:
+    resolver_input, _ = make_input([(SemanticType.LIST_ITEM, "A"), (SemanticType.LIST_ITEM, "B")])
+    logical_list = LogicalListV3(
+        list_id="list_aaaaaaaaaaaaaaaaaaaa", kind=LogicalListKind.UNORDERED,
+        member_fragment_ids=("sem_f000001", "sem_f000002"),
+    )
+    with_list = replace(resolver_input, accepted_logical_lists=(logical_list,))
+    baseline = DeterministicFlowResolver().run(with_list, tmp_path / "base").resolved_flow
+    assert baseline is not None
+    original = baseline.inclusion_decisions[0]
+    replacement = original.model_copy(update={
+        "audit": original.audit.model_copy(update={"decision_id": "fld_eeeeeeeeeeeeeeeeeeee"}),
+        "inclusion": InclusionType.EXCLUDE,
+    })
+    with pytest.raises(Exception, match="list member"):
+        DeterministicFlowResolver().run(
+            replace(with_list, accepted_flow_reviews=(_accepted_override(original, replacement),)),
+            tmp_path / "excluded",
+        )
 
 
 def test_synthetic_structured_book_rules_groups_order_caption_and_exclusion(tmp_path: Path) -> None:

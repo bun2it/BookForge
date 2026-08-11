@@ -12,7 +12,8 @@ from bookforge.contracts.common import (
     SourceType,
     TransformationStage,
 )
-from bookforge.contracts.raw import RawDocument, RawDrawing, RawImage, RawParagraph, RawRun, RawStyle
+from bookforge.contracts.raw import RawDocument, RawDrawing, RawImage, RawParagraph, RawRun, RawStyle, RawTable, RawTableRow, RawTableCell
+from bookforge.contracts.assembly import FigureSemanticNode, TableSemanticNode, TextSemanticNode, UnsupportedSemanticNode
 from bookforge.contracts.semantic import SemanticType
 from bookforge.semantic.models import SemanticPipelineConfig, SemanticSourceKind, Story
 from bookforge.semantic.pipeline import (
@@ -24,6 +25,7 @@ from bookforge.semantic.pipeline import (
     build_evidence_registry,
     deterministic_batches,
     generate_work_units,
+    materialize_flow_node,
 )
 
 DOC_ID = DocumentId("doc_aaaaaaaaaaaaaaaa")
@@ -330,3 +332,38 @@ def test_long_book_one_thousand_units_process_resume_and_batch(tmp_path: Path) -
     assert resumed.reused == 137
     assert resumed.failed == 0
     assert resumed.fragments_materialized == 1000
+
+
+def test_v3_flow_projection_materializes_all_node_families_without_fake_text() -> None:
+    image = RawImage(id="docx_img000002", document_id=DOC_ID, order=2, asset_reference="assets/i.png")
+    cell = RawTableCell(id="docx_tbl000003_row0001_c0001", document_id=DOC_ID, row_index=0, column_index=0, text="cell")
+    row = RawTableRow(id="docx_tbl000003_row0001", document_id=DOC_ID, index=0, cells=(cell,))
+    table = RawTable(id="docx_tbl000003", document_id=DOC_ID, order=3, rows=(row,))
+    drawing = RawDrawing(id="docx_drw000004", document_id=DOC_ID, order=4, drawing_type="shape")
+    raw = document((paragraph(1, "text"), image, table, drawing))
+    registry = build_evidence_registry(raw)
+    classifier = BaselineUnknownClassifier()
+    units = generate_work_units(raw)
+    results = [classifier.classify(build_analysis_view(unit, raw, registry)) for unit in units]
+    semantic_types = (SemanticType.PARAGRAPH, SemanticType.FIGURE, SemanticType.TABLE, SemanticType.ARTIFACT)
+    nodes = tuple(
+        materialize_flow_node(result.model_copy(update={"semantic_type": semantic_type}), unit, raw)
+        for result, semantic_type, unit in zip(results, semantic_types, units, strict=True)
+    )
+    assert isinstance(nodes[0], TextSemanticNode)
+    assert isinstance(nodes[1], FigureSemanticNode)
+    assert isinstance(nodes[2], TableSemanticNode)
+    assert isinstance(nodes[3], UnsupportedSemanticNode)
+    assert nodes[1].evidence[0].asset_reference == image.asset_reference
+    assert nodes[2].table.rows[0].cells[0].source_references[0].source_id == cell.id
+    assert "source_references" not in nodes[1].model_dump()
+    assert "source_references" not in nodes[2].model_dump()
+
+
+def test_unknown_non_text_evidence_is_not_inferred_into_typed_semantics() -> None:
+    image = RawImage(id="docx_img000001", document_id=DOC_ID, order=1, asset_reference="assets/i.png")
+    raw = document((image,))
+    registry = build_evidence_registry(raw)
+    unit = generate_work_units(raw)[0]
+    result = BaselineUnknownClassifier().classify(build_analysis_view(unit, raw, registry))
+    assert materialize_flow_node(result, unit, raw) is None

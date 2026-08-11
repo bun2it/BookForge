@@ -1,5 +1,10 @@
 # M3A Deterministic Semantic Pipeline
 
+M4.8 adds deterministic `materialize_flow_node` projection beside historical
+fragment materialization. Accepted type and explicit raw targets control the
+node family; UNKNOWN non-text evidence is never promoted. See
+[`SEMANTIC_FLOW_HANDOFF.md`](SEMANTIC_FLOW_HANDOFF.md).
+
 ## Purpose and boundary
 
 M3A transports immutable Raw Evidence through semantic classification. It

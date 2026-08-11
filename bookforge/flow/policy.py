@@ -19,8 +19,29 @@ from bookforge.contracts.flow import (
     StructuralBoundaryType,
 )
 from bookforge.contracts.semantic import SemanticType
+from bookforge.contracts.assembly import UnsupportedSemanticNode
 
 from .models import FlowAnalysisView, FlowResolverPolicy, FlowWorkUnitKind
+
+
+def _references(node: object) -> tuple[object, ...]:
+    return tuple(getattr(node, "source_references", ()))
+
+
+def _source_ids(node: object) -> tuple[object, ...]:
+    provenance = getattr(node, "provenance", None)
+    if provenance is not None:
+        return tuple(provenance.source_ids)
+    evidence = getattr(node, "evidence", getattr(node, "source_evidence", ()))
+    return tuple(item.source_id for item in evidence)
+
+
+def _semantic_type(node: object) -> SemanticType:
+    if isinstance(node, UnsupportedSemanticNode):
+        return SemanticType.ARTIFACT
+    value = getattr(node, "semantic_type")
+    assert isinstance(value, SemanticType)
+    return value
 
 LocalDecision: TypeAlias = (
     LogicalBoundaryDecision | InclusionDecision | FigurePlacement | CaptionAssociation
@@ -77,8 +98,10 @@ class StructuralBoundaryRule:
                 FlowReasonCode.SECTION_SEMANTIC_SIGNAL,
             ),
         }
-        resolved = mapping.get(right.semantic_type)
-        if resolved is None and right.semantic_type is SemanticType.CHAPTER_TITLE and left.semantic_type not in {
+        right_type = _semantic_type(right)
+        left_type = _semantic_type(left)
+        resolved = mapping.get(right_type)
+        if resolved is None and right_type is SemanticType.CHAPTER_TITLE and left_type not in {
             SemanticType.CHAPTER_HEADING,
             SemanticType.CHAPTER_NUMBER,
         }:
@@ -118,25 +141,26 @@ class ExplicitContinuationRule:
         )
         if not explicit:
             return None
-        if left.semantic_type is SemanticType.TABLE and right.semantic_type is SemanticType.TABLE:
+        left_type, right_type = _semantic_type(left), _semantic_type(right)
+        if left_type is SemanticType.TABLE and right_type is SemanticType.TABLE:
             return LogicalBoundaryDecision(
                 audit=audit.model_copy(update={"reason_codes": (FlowReasonCode.TABLE_CONTINUATION_SIGNAL,)}),
                 edge="between_fragments",
                 preceding_fragment_id=left.id,
                 following_fragment_id=right.id,
-                source_evidence_ids=tuple((*left.provenance.source_ids, *right.provenance.source_ids)),
+                source_evidence_ids=tuple((*_source_ids(left), *_source_ids(right))),
                 continuity=ContinuityType.CONTINUE_TABLE,
             )
-        if left.semantic_type in {SemanticType.LIST, SemanticType.LIST_ITEM} and right.semantic_type in {SemanticType.LIST, SemanticType.LIST_ITEM}:
+        if left_type in {SemanticType.LIST, SemanticType.LIST_ITEM} and right_type in {SemanticType.LIST, SemanticType.LIST_ITEM}:
             return LogicalBoundaryDecision(
                 audit=audit.model_copy(update={"reason_codes": (FlowReasonCode.LIST_CONTINUATION_SIGNAL,)}),
                 edge="between_fragments",
                 preceding_fragment_id=left.id,
                 following_fragment_id=right.id,
-                source_references=tuple((*left.source_references, *right.source_references)),
+                source_references=tuple((*_references(left), *_references(right))),
                 continuity=ContinuityType.CONTINUE_LIST,
             )
-        if left.semantic_type is SemanticType.PARAGRAPH and right.semantic_type is SemanticType.PARAGRAPH:
+        if left_type is SemanticType.PARAGRAPH and right_type is SemanticType.PARAGRAPH:
             left_text = view.target_texts[0]
             continuity = (
                 ContinuityType.JOIN_REMOVE_TRAILING_HYPHEN
@@ -151,7 +175,7 @@ class ExplicitContinuationRule:
                 edge="between_fragments",
                 preceding_fragment_id=left.id,
                 following_fragment_id=right.id,
-                source_references=tuple((*left.source_references, *right.source_references)),
+                source_references=tuple((*_references(left), *_references(right))),
                 continuity=continuity,
                 break_intent=LogicalBreakIntent.NONE,
             )
@@ -167,9 +191,10 @@ class KnownSeparationRule:
     def evaluate(self, view: FlowAnalysisView, policy: FlowResolverPolicy, audit: FlowDecisionAudit) -> LocalDecision | None:
         del policy
         left, right = view.target_fragments
-        if left.semantic_type is SemanticType.UNKNOWN or right.semantic_type is SemanticType.UNKNOWN:
+        left_type, right_type = _semantic_type(left), _semantic_type(right)
+        if left_type is SemanticType.UNKNOWN or right_type is SemanticType.UNKNOWN:
             return None
-        if left.semantic_type is not SemanticType.PARAGRAPH or right.semantic_type is not SemanticType.PARAGRAPH:
+        if left_type is not SemanticType.PARAGRAPH or right_type is not SemanticType.PARAGRAPH:
             return LogicalBoundaryDecision(
                 audit=audit,
                 edge="between_fragments",
@@ -212,13 +237,14 @@ class InclusionRule:
             SemanticType.PAGE_NUMBER: policy.exclude_page_numbers,
             SemanticType.DECORATIVE: policy.exclude_decorative,
         }
-        if fragment.semantic_type in exclusions and exclusions[fragment.semantic_type]:
+        semantic_type = _semantic_type(fragment)
+        if semantic_type in exclusions and exclusions[semantic_type]:
             return InclusionDecision(
                 audit=audit.model_copy(update={"reason_codes": (FlowReasonCode.PRINT_ARTIFACT,)}),
                 target_fragment_id=fragment.id,
                 inclusion=InclusionType.EXCLUDE,
             )
-        if fragment.semantic_type is SemanticType.UNKNOWN:
+        if semantic_type is SemanticType.UNKNOWN:
             return InclusionDecision(
                 audit=audit.model_copy(update={"confidence": 0.0, "review_status": ReviewStatus.NEEDS_REVIEW}),
                 target_fragment_id=fragment.id,
